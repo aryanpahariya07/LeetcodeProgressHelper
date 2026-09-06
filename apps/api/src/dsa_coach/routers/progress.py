@@ -92,7 +92,9 @@ async def unlocks(user: CurrentUser, session: DbSession) -> list[UnlockOut]:
         UnlockOut(
             slug=slugs[pattern_id],
             unlocked=state.unlocked,
+            provisional=state.provisional,
             blocked_by=[slugs[b] for b in state.blocked_by if b in slugs],
+            unknown_prerequisites=[slugs[u] for u in state.unknown_prerequisites if u in slugs],
             reason=state.reason,
         )
         for pattern_id, state in sorted(states.items(), key=lambda kv: slugs[kv[0]])

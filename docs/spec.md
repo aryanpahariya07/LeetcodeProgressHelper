@@ -355,9 +355,31 @@ handled correctly by default rather than by assumption.
 ### 6.4 Prerequisite DAG
 
 An explicit `pattern_prerequisites(pattern_id, requires_pattern_id, strength)` edge
-table. A pattern is **unlocked** when every prerequisite's rating clears its threshold
-with sufficient confidence (RD below limit). The scheduler will not schedule locked
-patterns except as a single, explicitly labelled stretch item.
+table.
+
+**A prerequisite has three states, not two.** This section previously said a pattern
+is unlocked only when every prerequisite clears its threshold with sufficient
+confidence. Phase 1 showed that deadlocks a new user: before any evidence exists
+nothing is calibrated, so on a fresh account 17 of 22 patterns locked and the
+scheduler returned a single problem against a 51-minute budget — weakest exactly when
+it is needed most. The rule is therefore:
+
+| State | Meaning | Effect |
+|---|---|---|
+| **demonstrated** | calibrated, at or above `PREREQUISITE_READINESS_MIN` | unlocks |
+| **refuted** | calibrated, below the threshold | **locks** |
+| **unknown** | not calibrated — no verdict either way | unlocks **provisionally** |
+
+Only a *refuted* prerequisite locks. **Locking requires evidence, not the absence of
+it.**
+
+A **provisional** unlock means the pattern is schedulable but is never chosen as a
+focus and is never presented to the user as earned. This preserves the rule that
+actually matters — a guess never counts as a demonstration, in either direction —
+while letting a new user receive a usable plan.
+
+The scheduler focuses only on established (non-provisional) unlocked patterns, and
+will schedule a locked pattern only as a single, explicitly labelled stretch item.
 
 ### 6.5 Retention (FSRS)
 
@@ -429,8 +451,18 @@ Given a validated prescription (§7.2):
   25% interleaved / 15% due re-solves.** Interleaving is deliberate — blocked practice
   inflates in-session performance and degrades transfer, and the interleaved items must
   **not** reveal their pattern to the user.
-- **Respect the time budget.** Estimate minutes per problem from the rating gap.
-  Under-schedule rather than over-schedule.
+- **Respect the time budget.** Estimate minutes per problem from **both** the
+  problem's rating and the predicted success on it:
+  `BASE * (rating / 1500) ** 1.5 * (1 + SPREAD * (0.5 - score))`.
+
+  Two inputs because they are known at different times. An earlier draft used the
+  rating gap alone, which needs a user rating the Beta baseline does not produce; a
+  score-only version then rated every problem identically before any evidence
+  existed, and a fresh account received a one-item block. Rating is a fact from day
+  one; readiness is not. Under-schedule rather than over-schedule.
+- **Guarantee a review slot.** On a small block the 15% retention share rounds to
+  zero, so overdue re-solves get crowded out entirely. Whenever a review is actually
+  due, one slot is reserved out of the larger share.
 - **Deterministic** given the same inputs and seed. Fully reproducible in tests.
 
 ---

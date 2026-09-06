@@ -117,7 +117,10 @@ class TestIdempotency:
 
 class TestExtensionBatch:
     async def test_partial_success_reports_each_event_independently(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
         duplicate = _event("valid-parentheses")
         await onboarded.post("/attempts", json=duplicate)
@@ -130,7 +133,9 @@ class TestExtensionBatch:
                 _event("climbing-stairs"),
             ]
         }
-        response = await onboarded.post("/extension/events/batch", json=batch)
+        response = await onboarded.post(
+            "/extension/events/batch", json=batch, headers=extension_auth
+        )
 
         assert response.status_code == 200, response.text
         body = response.json()
@@ -146,44 +151,67 @@ class TestExtensionBatch:
         ]
 
     async def test_one_bad_event_does_not_roll_back_the_good_ones(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
         batch = {"events": [_event("two-sum"), _event("nope"), _event("3sum")]}
 
-        await onboarded.post("/extension/events/batch", json=batch)
+        await onboarded.post("/extension/events/batch", json=batch, headers=extension_auth)
 
         assert await _attempt_count(session) == 2
 
     async def test_batch_events_are_recorded_as_extension_source(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
-        await onboarded.post("/extension/events/batch", json={"events": [_event()]})
+        await onboarded.post(
+            "/extension/events/batch", json={"events": [_event()]}, headers=extension_auth
+        )
 
         attempt = (await session.execute(select(Attempt))).scalar_one()
         assert attempt.source is AttemptSource.EXTENSION
 
     async def test_replaying_a_whole_batch_is_a_no_op(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
         batch = {"events": [_event("two-sum"), _event("3sum"), _event("subsets")]}
 
-        first = await onboarded.post("/extension/events/batch", json=batch)
-        second = await onboarded.post("/extension/events/batch", json=batch)
+        first = await onboarded.post("/extension/events/batch", json=batch, headers=extension_auth)
+        second = await onboarded.post("/extension/events/batch", json=batch, headers=extension_auth)
 
         assert first.json()["accepted"] == 3
         assert second.json()["accepted"] == 0
         assert second.json()["duplicates"] == 3
         assert await _attempt_count(session) == 3
 
-    async def test_oversized_batch_is_rejected(self, onboarded: AsyncClient) -> None:
+    async def test_oversized_batch_is_rejected(
+        self,
+        onboarded: AsyncClient,
+        extension_auth: dict[str, str],
+    ) -> None:
         batch = {"events": [_event() for _ in range(101)]}
 
-        response = await onboarded.post("/extension/events/batch", json=batch)
+        response = await onboarded.post(
+            "/extension/events/batch", json=batch, headers=extension_auth
+        )
 
         assert response.status_code == 413
 
-    async def test_empty_batch_is_a_validation_error(self, onboarded: AsyncClient) -> None:
-        response = await onboarded.post("/extension/events/batch", json={"events": []})
+    async def test_empty_batch_is_a_validation_error(
+        self,
+        onboarded: AsyncClient,
+        extension_auth: dict[str, str],
+    ) -> None:
+        response = await onboarded.post(
+            "/extension/events/batch", json={"events": []}, headers=extension_auth
+        )
 
         assert response.status_code == 422
 
@@ -224,22 +252,30 @@ class TestConfidenceCeiling:
         assert attempt.capture_confidence.value == "medium"
 
     async def test_extension_capture_may_claim_high_confidence(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
         await onboarded.post(
             "/extension/events/batch",
             json={"events": [_event(capture_confidence="high")]},
+            headers=extension_auth,
         )
 
         attempt = (await session.execute(select(Attempt))).scalar_one()
         assert attempt.capture_confidence.value == "high"
 
     async def test_a_lower_claim_is_never_raised(
-        self, onboarded: AsyncClient, session: AsyncSession
+        self,
+        onboarded: AsyncClient,
+        session: AsyncSession,
+        extension_auth: dict[str, str],
     ) -> None:
         await onboarded.post(
             "/extension/events/batch",
             json={"events": [_event(capture_confidence="low")]},
+            headers=extension_auth,
         )
 
         attempt = (await session.execute(select(Attempt))).scalar_one()

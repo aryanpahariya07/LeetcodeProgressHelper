@@ -633,3 +633,60 @@ class TriggerBatch(Base):
     evaluated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     __table_args__ = (Index("ix_trigger_batches_user_time", "user_id", "evaluated_at"),)
+
+
+# --------------------------------------------------------------------- devices
+
+
+class DeviceKind(StrEnum):
+    EXTENSION = "extension"
+    WEB = "web"
+
+
+class Device(Base):
+    """A paired client, holding a scoped, revocable credential (spec §5).
+
+    Only the hash of the token is stored. The plaintext is shown to the client
+    exactly once, at pairing, and is never recoverable from the database.
+    """
+
+    __tablename__ = "devices"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[DeviceKind] = mapped_column(_enum(DeviceKind, "device_kind"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    #: What this credential may do. An extension device gets ingest only — it can
+    #: never read the plan, the coach, or user settings.
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    last_seen_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
+
+
+class PairingCode(Base):
+    """A short-lived, single-use code exchanged for a device token.
+
+    Protected by expiry, single use, and a failed-attempt cap rather than by a
+    deliberately slow hash — see `security.py` for why that is the right trade
+    for this kind of secret.
+    """
+
+    __tablename__ = "pairing_codes"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    consumed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)

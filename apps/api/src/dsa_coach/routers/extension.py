@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from dsa_coach.auth import CurrentUser, DbSession, Scope, require_scope
+from dsa_coach.auth import Auth, CurrentUser, DbSession, Scope, require_scope
 from dsa_coach.config import Settings, get_settings
 from dsa_coach.ingest import ingest_events
 from dsa_coach.models import AttemptSource
@@ -33,6 +33,7 @@ async def ingest_batch(
     payload: AttemptBatchIn,
     user: CurrentUser,
     session: DbSession,
+    auth: Auth,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> BatchResultOut:
     if len(payload.events) > settings.max_batch_size:
@@ -41,7 +42,14 @@ async def ingest_batch(
             detail=f"Batch exceeds maximum of {settings.max_batch_size} events.",
         )
 
-    results = await ingest_events(session, user, payload.events, AttemptSource.EXTENSION)
+    results = await ingest_events(
+        session,
+        user,
+        payload.events,
+        AttemptSource.EXTENSION,
+        # Evidence records which credential contributed it.
+        device_id=auth.device.id if auth.device else None,
+    )
     counts = Counter(r.status for r in results)
 
     return BatchResultOut(

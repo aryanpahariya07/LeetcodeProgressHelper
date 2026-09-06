@@ -115,7 +115,10 @@ async def build_next_block(
 
     unlocks = evaluate_unlocks(pattern_ids, await _prerequisite_edges(session), predictions)
     unlocked = {pid for pid, state in unlocks.items() if state.unlocked}
-    focus = _focus_patterns(predictions, unlocked)
+    # Provisionally unlocked patterns are schedulable but never a focus: their
+    # prerequisites are unproven, so targeting them would be aiming at a guess.
+    established = {pid for pid in unlocked if not unlocks[pid].provisional}
+    focus = _focus_patterns(predictions, established)
 
     excluded = await _recent_problem_ids(session, user, now)
     due = await retention_service.due_problem_ids(session, user, now)
@@ -141,7 +144,7 @@ async def build_next_block(
         candidate = Candidate(
             problem_id=problem.id,
             rating=problem.rating,
-            minutes=estimate_minutes(score),
+            minutes=estimate_minutes(problem.rating, score),
             predicted_score=score,
         )
 

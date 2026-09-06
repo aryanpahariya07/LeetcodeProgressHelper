@@ -19,17 +19,23 @@ pass an interview.
 | [`docs/development.md`](docs/development.md) | Setup and commands |
 | [`CLAUDE.md`](CLAUDE.md) | Operating rules and invariants |
 
-## Status: Phase 1 complete
+## Status: Phase 2 built
 
 | Phase | | |
 |---|---|---|
 | **0** | Usable skeleton — API, schema, catalogue, provisional plan, manual logging | **Done** |
 | **1** | Deterministic mechanism — readiness, prerequisites, retention, block assembly | **Done** |
-| 2 | Chrome extension — automatic capture, the 1-click questionnaire | Next |
-| 3 | Adaptive placement | |
+| **2** | Chrome extension — automatic capture, the 1-click questionnaire | **Built, not verified** |
+| 3 | Adaptive placement | Next |
 | 4 | AI judgment layer | |
 | 5 | Teaching — hints, diagnosis, review, mock interviews | |
 | 6 | Profile reconciliation and hardening | |
+
+> **Phase 2 caveat.** The extension is built, builds cleanly, and its logic is
+> tested — but its LeetCode DOM selectors have **never been run against a live
+> problem page**. Until someone loads it in Chrome and solves a problem, assume
+> automatic capture does not work. Manual logging is unaffected and remains the
+> reliable path. See [docs/development.md](docs/development.md#verifying-the-extension).
 
 Usable today: onboard, log attempts by hand, and get a real scheduled block built
 from your recorded evidence — readiness per pattern, prerequisite gating, spaced
@@ -53,8 +59,9 @@ Then open <http://localhost:5173>. Full instructions in
 ## Layout
 
 ```
-apps/api/     FastAPI + SQLAlchemy + Alembic  (Python 3.12, managed by uv)
-apps/web/     React + TypeScript + Vite + Tailwind
+apps/api/       FastAPI + SQLAlchemy + Alembic  (Python 3.12, managed by uv)
+apps/web/       React + TypeScript + Vite + Tailwind
+apps/extension/ WXT + Manifest V3 (Chrome)
 docs/         Specification, features, development guide
 ```
 

@@ -262,16 +262,21 @@ BLOCK_MIX_RETENTION: float = 0.15
 # Do not re-show a problem within this many days of the last attempt.
 COOLDOWN_DAYS: int = 21
 
-# Minutes estimate from predicted success rather than a raw rating gap.
+# Minutes estimate: the problem's own difficulty, adjusted by predicted success.
 #
-# The primary model is Beta-Binomial and produces no rating, so time is estimated
-# from what it does produce. This is also the more direct relationship: two
-# problems you are equally likely to solve take roughly equally long, whatever
-# their nominal ratings say.
+# Two inputs because they are known at different times. A problem's rating is a
+# fact from day one; readiness is not. Estimating from readiness alone gives every
+# problem an identical estimate before any evidence exists, which produced blocks
+# of a single item on a fresh account. Estimating from rating alone ignores that
+# the same problem is quicker for someone who has got good at it.
 #
-# A coin-flip problem costs the base; near-certain ones cost less, near-hopeless
-# ones more, clamped so one bad estimate cannot distort a plan.
+# minutes = BASE * (rating / REFERENCE) ** EXPONENT * (1 + SPREAD * (0.5 - score))
+#
+# Revisit when: real `active_seconds` exist. If median actual time diverges from
+# the estimate by more than ~40%, blocks are systematically over- or under-filled.
 BASE_PROBLEM_MINUTES: int = 25
+MINUTES_REFERENCE_RATING: float = 1500.0
+MINUTES_RATING_EXPONENT: float = 1.5
 MINUTES_SCORE_SPREAD: float = 0.6
 MIN_PROBLEM_MINUTES: int = 10
 MAX_PROBLEM_MINUTES: int = 75

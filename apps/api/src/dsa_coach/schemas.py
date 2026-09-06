@@ -256,7 +256,11 @@ class RetentionOut(BaseModel):
 class UnlockOut(BaseModel):
     slug: str
     unlocked: bool
+    #: Unlocked only because prerequisites are unproven, not because they passed.
+    #: Schedulable, but never chosen as a focus.
+    provisional: bool
     blocked_by: list[str]
+    unknown_prerequisites: list[str]
     reason: str
 
 
@@ -282,3 +286,41 @@ class BlockResultOut(BaseModel):
     total_minutes: int
     budget_minutes: int
     shortfalls: list[str]
+
+
+# -------------------------------------------------------------------- devices
+
+
+class PairingCodeOut(BaseModel):
+    """Shown once, on screen, for the user to copy into the extension."""
+
+    code: str
+    expires_at: datetime
+    expires_in_seconds: int
+
+
+class PairingRequest(BaseModel):
+    code: Annotated[str, Field(min_length=4, max_length=32)]
+    device_name: Annotated[str, Field(min_length=1, max_length=120)] = "Browser extension"
+
+
+class PairingResult(BaseModel):
+    """The token appears here and nowhere else, ever again."""
+
+    device_id: uuid.UUID
+    device_name: str
+    token: str
+    scopes: list[str]
+
+
+class DeviceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    kind: str
+    scopes: list[str]
+    created_at: datetime
+    last_seen_at: datetime | None
+    revoked_at: datetime | None
+    active: bool

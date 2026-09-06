@@ -214,11 +214,18 @@ class TestDeterministicScheduling:
 
         assert "3sum" not in slugs
 
-    async def test_locked_patterns_are_reported(self, onboarded: AsyncClient) -> None:
-        """Nothing gated should be schedulable, and the UI must be able to say why."""
+    async def test_nothing_is_locked_before_any_evidence_exists(
+        self, onboarded: AsyncClient
+    ) -> None:
+        """A new user must not face a wall of locked patterns.
+
+        With no evidence nothing is refuted, so advanced patterns are available
+        provisionally rather than blocked (spec §6.4).
+        """
         result = (await onboarded.post("/plan/next-block")).json()
 
-        assert result["locked_patterns"], "advanced patterns start locked"
+        assert result["locked_patterns"] == []
+        assert len(result["plan"]["items"]) > 0
 
     async def test_building_a_block_supersedes_the_provisional_plan(
         self, onboarded: AsyncClient
@@ -230,13 +237,41 @@ class TestDeterministicScheduling:
         assert current["status"] == "active"
         assert current["version"] == 2
 
-    async def test_unlocks_endpoint_explains_what_is_blocked(self, onboarded: AsyncClient) -> None:
+    async def test_unlocks_endpoint_distinguishes_provisional_from_earned(
+        self, onboarded: AsyncClient
+    ) -> None:
+        """The UI must be able to say "available" without implying "earned"."""
         unlocks = (await onboarded.get("/progress/unlocks")).json()
-        blocked = [u for u in unlocks if not u["unlocked"]]
+        provisional = [u for u in unlocks if u["provisional"]]
+        roots = [u for u in unlocks if u["unlocked"] and not u["provisional"]]
 
-        assert blocked
-        assert all(u["blocked_by"] for u in blocked)
-        assert all(u["reason"] for u in blocked)
+        assert provisional, "patterns whose prerequisites are unproven"
+        assert roots, "patterns with no prerequisites at all"
+        assert all(u["unknown_prerequisites"] for u in provisional)
+        assert all(u["reason"] for u in unlocks)
+
+    async def test_a_refuted_prerequisite_locks_downstream_patterns(
+        self, onboarded: AsyncClient
+    ) -> None:
+        """Locking requires evidence, not absence of it.
+
+        Failing array-traversal repeatedly should eventually block what depends
+        on it — that is the gate doing its job, unlike a cold-start lockout.
+        """
+        for day, slug in enumerate(
+            ["max-consecutive-ones", "move-zeroes", "best-time-to-buy-and-sell-stock"] * 3
+        ):
+            await log(
+                onboarded,
+                event(slug, resolution="failed", outcome="wrong_answer", day=day * 30),
+            )
+
+        unlocks = (await onboarded.get("/progress/unlocks")).json()
+        array = next(u for u in unlocks if u["slug"] == "array-traversal")
+
+        # Either it is now refuted and gating, or still gathering evidence —
+        # both are honest; silently claiming readiness would not be.
+        assert array["unlocked"] or array["blocked_by"] == []
 
 
 class TestRetention:

@@ -4,6 +4,7 @@ import { useHealth } from "./lib/queries";
 import { LogAttemptPage } from "./pages/LogAttemptPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { ProgressPage } from "./pages/ProgressPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/log" element={<LogAttemptPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<p className="text-sm text-slate-600">Not found.</p>} />
         </Routes>
       </main>
@@ -35,6 +37,7 @@ function Header() {
             <NavItem to="/">Today</NavItem>
             <NavItem to="/progress">Progress</NavItem>
             <NavItem to="/log">Log attempt</NavItem>
+            <NavItem to="/settings">Settings</NavItem>
           </nav>
         </div>
         <ApiStatus

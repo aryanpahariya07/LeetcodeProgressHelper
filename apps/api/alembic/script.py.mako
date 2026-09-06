@@ -9,6 +9,10 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+
+# Custom column types render as `dsa_coach.db.X`; autogenerate does not add
+# this import itself, and without it the migration fails at import time.
+import dsa_coach.db
 ${imports if imports else ""}
 
 revision: str = ${repr(up_revision)}

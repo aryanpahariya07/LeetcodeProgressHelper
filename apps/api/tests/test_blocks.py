@@ -21,7 +21,7 @@ from dsa_coach.mechanism.prerequisites import (
     topological_order,
 )
 from dsa_coach.mechanism.readiness.base import Prediction
-from dsa_coach.models import ItemRole
+from dsa_coach.models import ItemRole, Level
 
 
 def cand(minutes: int = 25, score: float = 0.6, rating: int = 1500) -> Candidate:
@@ -33,19 +33,34 @@ def pool(n: int, **kwargs: object) -> list[Candidate]:
 
 
 class TestMinuteEstimates:
-    def test_a_coin_flip_problem_costs_the_base(self) -> None:
-        assert estimate_minutes(0.5) == tuning.BASE_PROBLEM_MINUTES
+    def test_a_reference_problem_at_even_odds_costs_the_base(self) -> None:
+        reference = int(tuning.MINUTES_REFERENCE_RATING)
 
-    def test_less_likely_problems_cost_more(self) -> None:
-        assert estimate_minutes(0.2) > estimate_minutes(0.5) > estimate_minutes(0.9)
+        assert estimate_minutes(reference, 0.5) == tuning.BASE_PROBLEM_MINUTES
+
+    def test_harder_problems_cost_more(self) -> None:
+        assert estimate_minutes(1900, 0.5) > estimate_minutes(1500, 0.5)
+        assert estimate_minutes(1500, 0.5) > estimate_minutes(1150, 0.5)
+
+    def test_getting_better_makes_the_same_problem_quicker(self) -> None:
+        assert estimate_minutes(1500, 0.9) < estimate_minutes(1500, 0.3)
+
+    def test_difficulty_still_separates_problems_before_any_evidence(self) -> None:
+        """The cold-start failure: with a single prior score for every pattern,
+        a score-only estimate rated an easy and a hard problem identically, and
+        the first block came back with one item."""
+        prior = tuning.BASELINE_PRIOR_MEAN[Level.BEGINNER]
+
+        assert estimate_minutes(1950, prior) > estimate_minutes(1150, prior) + 10
 
     def test_estimates_are_clamped(self) -> None:
-        assert estimate_minutes(0.0) <= tuning.MAX_PROBLEM_MINUTES
-        assert estimate_minutes(1.0) >= tuning.MIN_PROBLEM_MINUTES
+        assert estimate_minutes(3400, 0.0) <= tuning.MAX_PROBLEM_MINUTES
+        assert estimate_minutes(800, 1.0) >= tuning.MIN_PROBLEM_MINUTES
 
     def test_estimates_stay_positive_across_the_whole_range(self) -> None:
-        for tenth in range(11):
-            assert estimate_minutes(tenth / 10) >= tuning.MIN_PROBLEM_MINUTES
+        for rating in (800, 1200, 1500, 2000, 3000):
+            for tenth in range(11):
+                assert estimate_minutes(rating, tenth / 10) >= tuning.MIN_PROBLEM_MINUTES
 
 
 class TestBlockMix:
@@ -208,11 +223,24 @@ class TestPrerequisites:
 
         assert result[root].unlocked
 
-    def test_an_undemonstrated_prerequisite_locks_the_pattern(self) -> None:
+    def test_an_unproven_prerequisite_unlocks_only_provisionally(self) -> None:
+        """With no evidence anywhere, hard-locking would leave a new user stuck."""
         base, advanced = uuid4(), uuid4()
         edges = [PrerequisiteEdge(advanced, base, 1.0)]
 
         result = evaluate_unlocks({base, advanced}, edges, {})
+
+        assert result[advanced].unlocked
+        assert result[advanced].provisional
+        assert result[advanced].unknown_prerequisites == (base,)
+
+    def test_a_refuted_prerequisite_locks_the_pattern(self) -> None:
+        """Tried, measured, and not good enough — that is a real reason to wait."""
+        base, advanced = uuid4(), uuid4()
+        edges = [PrerequisiteEdge(advanced, base, 1.0)]
+        predictions = {base: Prediction(score=0.2, uncertainty=0.02)}
+
+        result = evaluate_unlocks({base, advanced}, edges, predictions)
 
         assert not result[advanced].unlocked
         assert result[advanced].blocked_by == (base,)
@@ -227,14 +255,29 @@ class TestPrerequisites:
         assert result[advanced].unlocked
 
     def test_a_confident_guess_is_not_a_demonstration(self) -> None:
-        """High score but uncalibrated must not unlock anything."""
+        """A high but uncalibrated score must not count as earned.
+
+        It no longer hard-locks the pattern, but it must not be treated as a
+        passed prerequisite either — the unlock stays provisional.
+        """
         base, advanced = uuid4(), uuid4()
         edges = [PrerequisiteEdge(advanced, base, 1.0)]
         predictions = {base: Prediction(score=0.95, uncertainty=0.9)}
 
         result = evaluate_unlocks({base, advanced}, edges, predictions)
 
-        assert not result[advanced].unlocked
+        assert result[advanced].provisional
+        assert not prerequisite_met(predictions[base])
+
+    def test_a_demonstrated_prerequisite_is_not_provisional(self) -> None:
+        base, advanced = uuid4(), uuid4()
+        edges = [PrerequisiteEdge(advanced, base, 1.0)]
+        predictions = {base: Prediction(score=0.8, uncertainty=0.05)}
+
+        result = evaluate_unlocks({base, advanced}, edges, predictions)
+
+        assert result[advanced].unlocked
+        assert not result[advanced].provisional
 
     def test_weak_edges_are_advisory_and_do_not_gate(self) -> None:
         base, advanced = uuid4(), uuid4()

@@ -73,18 +73,22 @@ class Block:
         return not self.items
 
 
-def estimate_minutes(predicted_score: float) -> int:
-    """Minutes a problem is likely to take, from how likely it is to be solved.
+def estimate_minutes(problem_rating: int, predicted_score: float) -> int:
+    """Minutes a problem is likely to take.
 
-    Keyed off predicted success rather than a rating gap: the primary model is
-    Beta-Binomial and produces no rating, and in any case two problems you are
-    equally likely to solve take roughly equally long, whatever their nominal
-    ratings claim.
+    Two inputs, because they are known at different times. The rating is a fact
+    from day one; readiness is not. Rating alone ignores that a problem gets
+    quicker as you get better at its pattern; readiness alone gives every problem
+    an identical estimate before any evidence exists — which is how a fresh
+    account ended up with a one-item block.
 
     Clamped, so one bad estimate cannot distort a whole plan.
     """
-    factor = 1.0 + tuning.MINUTES_SCORE_SPREAD * (1.0 - 2.0 * predicted_score)
-    minutes = tuning.BASE_PROBLEM_MINUTES * factor
+    difficulty = (
+        problem_rating / tuning.MINUTES_REFERENCE_RATING
+    ) ** tuning.MINUTES_RATING_EXPONENT
+    skill = 1.0 + tuning.MINUTES_SCORE_SPREAD * (0.5 - predicted_score)
+    minutes = tuning.BASE_PROBLEM_MINUTES * difficulty * skill
     return int(max(tuning.MIN_PROBLEM_MINUTES, min(tuning.MAX_PROBLEM_MINUTES, minutes)))
 
 

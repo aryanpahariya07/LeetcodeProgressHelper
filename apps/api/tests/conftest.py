@@ -76,3 +76,24 @@ async def onboarded(client: AsyncClient, onboarding_payload: dict[str, object]) 
     response = await client.post("/onboarding", json=onboarding_payload)
     assert response.status_code == 201, response.text
     return client
+
+
+@pytest.fixture
+async def extension_token(onboarded: AsyncClient) -> str:
+    """Pair an extension device and return its token.
+
+    The batch endpoint requires the `extension:ingest` scope, so anything
+    exercising it must hold a real device credential.
+    """
+    code = (await onboarded.post("/devices/pairing-code")).json()["code"]
+    response = await onboarded.post(
+        "/extension/pair", json={"code": code, "device_name": "Test browser"}
+    )
+    assert response.status_code == 201, response.text
+    token: str = response.json()["token"]
+    return token
+
+
+@pytest.fixture
+def extension_auth(extension_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {extension_token}"}

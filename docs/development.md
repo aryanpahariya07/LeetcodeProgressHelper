@@ -107,7 +107,7 @@ apps/api/src/dsa_coach/
 apps/web/src/
   lib/             API client, schemas, formatting, queries — all business logic
   components/      Presentational primitives
-  pages/           Today, Onboarding, Progress, Log attempt
+  pages/           Today, Onboarding, Progress, Log attempt, Settings
 ```
 
 ## The mechanism layer
@@ -166,28 +166,79 @@ limitations of every import. If a licensed contest-derived dataset is adopted la
 re-source the ratings through `import-catalogue --rating-source contest_derived`
 rather than editing values in place.
 
-## What Phase 1 deliberately does not do
+## What Phase 2 deliberately does not do
 
-- **No extension.** Attempts are logged by hand. Phase 2 automates capture; manual
-  logging then stays as the permanent fallback.
 - **No placement.** The first plan is still the static curriculum lookup. Phase 3
   turns placement into the first practice block.
+- **No code capture.** Off by default and not implemented; it arrives with the
+  diagnosis feature in Phase 5, behind explicit consent.
+- **No amendment re-prompt.** Spec §3.3 wants the extension to notice you opening
+  the editorial after a failure and ask again. Not built yet — attempts are
+  editable in the web app instead.
 - **No AI.** The coach arrives in Phase 4. Until then a material change is recorded
   as `pending_agent` and the deterministic scheduler carries on regardless — which
   is the behaviour invariant 4 requires permanently, not a stopgap.
-- **No real authentication.** Single local user, resolved server-side through
-  `get_current_user()`. Pairing and revocable device tokens are Phase 2 (spec §5).
+- **Dashboard auth is still by locality.** The extension now holds a real scoped,
+  revocable credential; the dashboard is trusted because it is on localhost. Both
+  paths go through `get_current_user()`, so a real session token is one function.
 
-## Known limitation: prerequisite gating at cold start
+## The extension
 
-With no evidence, nothing is calibrated, so almost every non-root pattern is locked
-and the block assembler has very little to draw on. On a fresh database a first block
-can come back with one or two problems.
+```bash
+cd apps/extension
+npm install
+npm run build          # -> .output/chrome-mv3
+```
 
-This follows spec §6.4 as written — a prerequisite must be *demonstrated*, and
-"unknown" is not demonstrated — but it makes the scheduler weakest exactly when a new
-user needs it most. It is flagged for a decision rather than silently patched
-(`CLAUDE.md`, "When the spec is wrong"). The likely fix is to distinguish *refuted*
-prerequisites (calibrated and below threshold → lock) from *unknown* ones
-(uncalibrated → allow, but deprioritise), which preserves the rule that a guess never
-counts as a demonstration.
+Load it in Chrome: `chrome://extensions` → enable Developer mode → **Load
+unpacked** → select `apps/extension/.output/chrome-mv3`.
+
+Then in the web app go to **Settings**, generate a pairing code, and type it into
+the extension popup. The extension holds a scoped, revocable credential from that
+point on; revoking it in Settings kills it on the device's next request.
+
+### Layout
+
+```
+apps/extension/
+  entrypoints/
+    background.ts          service worker: owns the queue and ALL network access
+    leetcode.content.ts    watches the page; holds no credentials
+    popup/                 pairing, pause, disconnect, sync status
+  src/
+    adapters/leetcode/     THE ONLY PLACE THAT KNOWS LEETCODE'S MARKUP
+    lib/                   pure logic — active time, session, retry, storage, api
+    ui/questionnaire.ts    the 1-2 click panel, in a closed shadow root
+```
+
+The content script never calls the API. It observes and hands finished attempts
+to the background worker, so navigating away mid-sync cannot lose an event.
+
+### Verifying the extension
+
+**The DOM selectors have not been checked against a live LeetCode page.** The
+tests prove the parsing logic is right *given* markup of a certain shape; they
+cannot prove the shape is right. Until this is done, assume capture is broken.
+
+To verify:
+
+1. Load the extension, pair it, open any LeetCode problem.
+2. Solve and submit it. The questionnaire should appear bottom-right.
+3. Answer it, then check the attempt appears in the web app's Activity list with
+   `source: extension`.
+4. If nothing appears, open the extension popup — a broken adapter reports
+   **"Monitoring impaired"** rather than failing silently (spec §4.3).
+5. Fix selectors in `src/adapters/leetcode/adapter.ts` only. Nothing outside that
+   directory should need to change.
+
+Selectors deliberately avoid CSS classes: LeetCode ships hashed class names that
+change on essentially every deploy. The adapter prefers the URL, then
+`data-e2e-locator` attributes, then user-facing verdict text.
+
+### Why the API needs a host permission
+
+The extension's manifest requests `http://127.0.0.1:8000/*` alongside LeetCode.
+That is the DSA Coach API: a host permission is what lets the service worker
+reach it without CORS, and the API's CORS allowlist deliberately covers only the
+web app. If the API moves, update both `wxt.config.ts` and `apiBaseUrl` in
+`src/lib/storage.ts`.

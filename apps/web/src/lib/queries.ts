@@ -11,6 +11,7 @@ import { api, ApiError } from "./api";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
 import type {
   Attempt,
+  DeviceInfo,
   Health,
   Plan,
   ReadinessReport,
@@ -31,6 +32,7 @@ export const keys = {
   retention: ["progress", "retention"] as const,
   unlocks: ["progress", "unlocks"] as const,
   triggers: ["plan", "triggers"] as const,
+  devices: ["devices"] as const,
 };
 
 export function useHealth(): UseQueryResult<Health, ApiError> {
@@ -106,6 +108,24 @@ export function useBuildNextBlock() {
     mutationFn: api.buildNextBlock,
     onSuccess: () => {
       void client.invalidateQueries();
+    },
+  });
+}
+
+export function useDevices(): UseQueryResult<DeviceInfo[], ApiError> {
+  return useQuery({ queryKey: keys.devices, queryFn: api.devices, retry: false });
+}
+
+export function useCreatePairingCode() {
+  return useMutation({ mutationFn: api.createPairingCode });
+}
+
+export function useRevokeDevice() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeDevice(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.devices });
     },
   });
 }

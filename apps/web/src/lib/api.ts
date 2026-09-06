@@ -8,9 +8,11 @@
 import type {
   Attempt,
   BlockResult,
+  DeviceInfo,
   EventResult,
   Health,
   Plan,
+  PairingCode,
   ReadinessReport,
   Retention,
   Today,
@@ -107,6 +109,12 @@ export const api = {
   unlocks: () => request<Unlock[]>("/progress/unlocks"),
   triggers: () => request<TriggerBatch[]>("/plan/triggers"),
   buildNextBlock: () => request<BlockResult>("/plan/next-block", { method: "POST" }),
+
+  devices: () => request<DeviceInfo[]>("/devices"),
+  createPairingCode: () =>
+    request<PairingCode>("/devices/pairing-code", { method: "POST" }),
+  revokeDevice: (id: string) =>
+    request<DeviceInfo>(`/devices/${id}`, { method: "DELETE" }),
 };
 
 function splitCompanies(raw: string): string[] {

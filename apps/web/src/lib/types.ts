@@ -168,3 +168,20 @@ export interface BlockResult {
   budget_minutes: number;
   shortfalls: string[];
 }
+
+export interface PairingCode {
+  code: string;
+  expires_at: string;
+  expires_in_seconds: number;
+}
+
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  kind: string;
+  scopes: string[];
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+  active: boolean;
+}
