@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk -F: 'length\\($0\\)>110 {print length\\($0\\)\": \"substr\\($0,1,90\\)}')"
+    ]
+  }
+}

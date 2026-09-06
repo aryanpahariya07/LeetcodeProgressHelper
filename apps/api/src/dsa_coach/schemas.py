@@ -1,0 +1,219 @@
+"""Request/response models.
+
+Note what is *absent* from the inbound schemas: `user_id` and `source`. Identity
+comes from server-side context (invariant 10) and the ingestion source is set by
+the endpoint, so a client cannot claim its manual entry was captured telemetry.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, date, datetime
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from dsa_coach.models import (
+    Blocker,
+    CaptureConfidence,
+    Difficulty,
+    ItemRole,
+    ItemStatus,
+    ItemType,
+    Level,
+    PlanStatus,
+    Resolution,
+    SubmissionOutcome,
+)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Naive datetimes are interpreted as UTC so SQLite and Postgres agree."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+# ------------------------------------------------------------------- onboarding
+
+
+class OnboardingIn(BaseModel):
+    display_name: Annotated[str, Field(min_length=1, max_length=120)]
+    timezone: str = "UTC"
+    preferred_language: str = "python"
+    target_companies: list[str] = Field(default_factory=list, max_length=20)
+    target_date: date | None = None
+    days_per_week: Annotated[int, Field(ge=1, le=7)]
+    minutes_per_day: Annotated[int, Field(ge=10, le=600)]
+    self_assessed_level: Level
+    approx_problems_solved: Annotated[int, Field(ge=0, le=10_000)] = 0
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    display_name: str
+    timezone: str
+    preferred_language: str
+
+
+class GoalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    target_companies: list[str]
+    target_date: date | None
+    days_per_week: int
+    minutes_per_day: int
+    self_assessed_level: Level
+
+
+# ------------------------------------------------------------------------- plan
+
+
+class ProblemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    slug: str
+    title: str
+    url: str
+    difficulty: Difficulty
+    rating: int
+    rating_rd: int
+
+
+class PlanItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    block_id: uuid.UUID
+    sequence: int
+    item_type: ItemType
+    role: ItemRole
+    target_minutes: int
+    status: ItemStatus
+    problem: ProblemOut | None
+
+
+class PlanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    version: int
+    status: PlanStatus
+    summary: str
+    generation_context: dict[str, Any]
+    items: list[PlanItemOut]
+
+
+class TodayOut(BaseModel):
+    plan: PlanOut | None
+    block_id: uuid.UUID | None
+    items: list[PlanItemOut]
+    total_target_minutes: int
+    # Surfaced so the UI can say so plainly rather than implying the plan is earned.
+    is_provisional: bool
+
+
+class OnboardingOut(BaseModel):
+    user: UserOut
+    goal: GoalOut
+    plan: PlanOut
+
+
+# --------------------------------------------------------------------- attempts
+
+
+class AttemptEventIn(BaseModel):
+    """One captured attempt. `event_uuid` is client-generated and is the
+    idempotency key (invariant 7)."""
+
+    event_uuid: uuid.UUID
+    problem_slug: Annotated[str, Field(min_length=1, max_length=200)]
+    provider: str = "leetcode"
+
+    submitted_at: datetime
+    started_at: datetime | None = None
+    language: str | None = Field(default=None, max_length=32)
+
+    active_seconds: Annotated[int | None, Field(ge=0, le=86_400)] = None
+    excluded_seconds: Annotated[int, Field(ge=0, le=86_400)] = 0
+    run_count: Annotated[int, Field(ge=0, le=1000)] = 0
+    submit_count: Annotated[int, Field(ge=0, le=1000)] = 1
+    submission_outcome: SubmissionOutcome = SubmissionOutcome.UNKNOWN
+
+    # Questionnaire (spec §3.2). Dismissal is valid and yields UNKNOWN.
+    resolution: Resolution = Resolution.UNKNOWN
+    blocker: Blocker | None = None
+    confidence_cold_redo: Annotated[int | None, Field(ge=1, le=5)] = None
+    hint_level_used: Annotated[int | None, Field(ge=1, le=5)] = None
+
+    is_resolve: bool = False
+    timed: bool = False
+    capture_confidence: CaptureConfidence = CaptureConfidence.HIGH
+
+    notes: str | None = Field(default=None, max_length=4000)
+    raw_metadata: dict[str, Any] | None = None
+
+    @field_validator("submitted_at", "started_at")
+    @classmethod
+    def _normalize_tz(cls, v: datetime | None) -> datetime | None:
+        return _as_utc(v)
+
+
+class AttemptBatchIn(BaseModel):
+    events: Annotated[list[AttemptEventIn], Field(min_length=1)]
+
+
+class EventResultOut(BaseModel):
+    event_uuid: uuid.UUID
+    status: Literal["accepted", "duplicate", "invalid"]
+    attempt_id: uuid.UUID | None = None
+    error: str | None = None
+
+
+class BatchResultOut(BaseModel):
+    """Partial success is the normal case, not an error (spec §14)."""
+
+    received: int
+    accepted: int
+    duplicates: int
+    invalid: int
+    results: list[EventResultOut]
+    server_received_at: datetime
+
+
+class AttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    problem: ProblemOut
+    resolution: Resolution
+    blocker: Blocker | None
+    confidence_cold_redo: int | None
+    language: str | None
+    started_at: datetime | None
+    submitted_at: datetime
+    active_seconds: int | None
+    excluded_seconds: int
+    run_count: int
+    submit_count: int
+    submission_outcome: SubmissionOutcome
+    is_resolve: bool
+    timed: bool
+    source: str
+    capture_confidence: CaptureConfidence
+    amended_at: datetime | None
+    notes: str | None
+
+
+# ------------------------------------------------------------------------ health
+
+
+class HealthOut(BaseModel):
+    status: Literal["ok"]
+    version: str
+    database: Literal["ok", "unavailable"]
+    catalogue_problems: int
