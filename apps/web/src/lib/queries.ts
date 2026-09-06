@@ -9,7 +9,17 @@ import {
 
 import { api, ApiError } from "./api";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
-import type { Attempt, Health, Plan, Today, User } from "./types";
+import type {
+  Attempt,
+  Health,
+  Plan,
+  ReadinessReport,
+  Retention,
+  Today,
+  TriggerBatch,
+  Unlock,
+  User,
+} from "./types";
 
 export const keys = {
   health: ["health"] as const,
@@ -17,6 +27,10 @@ export const keys = {
   today: ["today"] as const,
   plan: ["plan", "current"] as const,
   attempts: ["attempts"] as const,
+  readiness: ["progress", "readiness"] as const,
+  retention: ["progress", "retention"] as const,
+  unlocks: ["progress", "unlocks"] as const,
+  triggers: ["plan", "triggers"] as const,
 };
 
 export function useHealth(): UseQueryResult<Health, ApiError> {
@@ -66,6 +80,32 @@ export function useLogAttempt() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.attempts });
       void client.invalidateQueries({ queryKey: keys.today });
+    },
+  });
+}
+
+export function useReadiness(): UseQueryResult<ReadinessReport, ApiError> {
+  return useQuery({ queryKey: keys.readiness, queryFn: api.readiness, retry: false });
+}
+
+export function useRetention(): UseQueryResult<Retention, ApiError> {
+  return useQuery({ queryKey: keys.retention, queryFn: api.retention, retry: false });
+}
+
+export function useUnlocks(): UseQueryResult<Unlock[], ApiError> {
+  return useQuery({ queryKey: keys.unlocks, queryFn: api.unlocks, retry: false });
+}
+
+export function useTriggers(): UseQueryResult<TriggerBatch[], ApiError> {
+  return useQuery({ queryKey: keys.triggers, queryFn: api.triggers, retry: false });
+}
+
+export function useBuildNextBlock() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.buildNextBlock,
+    onSuccess: () => {
+      void client.invalidateQueries();
     },
   });
 }

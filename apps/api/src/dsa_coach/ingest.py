@@ -28,6 +28,7 @@ from dsa_coach.models import (
     User,
 )
 from dsa_coach.schemas import AttemptEventIn, EventResultOut
+from dsa_coach.services import pipeline
 
 
 async def ingest_events(
@@ -45,7 +46,16 @@ async def ingest_events(
     """
     results: list[EventResultOut] = []
     for event in events:
-        results.append(await _ingest_one(session, user, event, source, device_id))
+        result = await _ingest_one(session, user, event, source, device_id)
+        results.append(result)
+
+        # The evidence is recorded above. Deriving readiness, retention and the
+        # trigger happens afterwards and can never undo it.
+        if result.status == "accepted" and result.attempt_id is not None:
+            attempt = await session.get(Attempt, result.attempt_id)
+            if attempt is not None:
+                await pipeline.process_safely(session, user, attempt)
+
     return results
 
 

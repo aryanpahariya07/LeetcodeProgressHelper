@@ -1,6 +1,6 @@
 /** Display helpers. Kept out of components so they can be tested directly. */
 
-import type { CaptureConfidence, Difficulty, Resolution } from "./types";
+import type { CaptureConfidence, Difficulty, ReadinessBand, Resolution } from "./types";
 
 export const RESOLUTION_LABELS: Record<Resolution, string> = {
   independent: "Solved independently",
@@ -55,3 +55,29 @@ export function formatDateTime(iso: string): string {
     timeStyle: "short",
   });
 }
+
+/**
+ * Readiness is shown as a band, never a percentage, until calibration is proven
+ * (invariant 12). "Calibrating" is an honest answer, not a placeholder.
+ */
+export const BAND_LABELS: Record<ReadinessBand, string> = {
+  calibrating: "Calibrating",
+  not_ready: "Not ready",
+  developing: "Developing",
+  approaching: "Approaching",
+  ready: "Ready",
+};
+
+export const BAND_STYLES: Record<ReadinessBand, string> = {
+  calibrating: "bg-slate-100 text-slate-600",
+  not_ready: "bg-rose-100 text-rose-800",
+  developing: "bg-amber-100 text-amber-800",
+  approaching: "bg-sky-100 text-sky-800",
+  ready: "bg-emerald-100 text-emerald-800",
+};
+
+export const ROLE_LABELS: Record<string, string> = {
+  weakness: "Target weakness",
+  interleaved: "Mixed in",
+  retention: "Review",
+};

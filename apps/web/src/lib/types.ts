@@ -110,3 +110,61 @@ export interface Attempt {
   amended_at: string | null;
   notes: string | null;
 }
+
+export type ReadinessBand =
+  | "calibrating"
+  | "not_ready"
+  | "developing"
+  | "approaching"
+  | "ready";
+
+export interface PatternReadiness {
+  pattern_id: string;
+  slug: string;
+  name: string;
+  band: ReadinessBand;
+  calibrated: boolean;
+  evidence_count: number;
+  estimate: number;
+  uncertainty: number;
+}
+
+export interface ReadinessReport {
+  model_version: string;
+  patterns: PatternReadiness[];
+  calibrated_count: number;
+  total_count: number;
+  disclaimer: string;
+}
+
+export interface Retention {
+  tracked: number;
+  due: number;
+  lapses: number;
+}
+
+export interface Unlock {
+  slug: string;
+  unlocked: boolean;
+  blocked_by: string[];
+  reason: string;
+}
+
+export interface TriggerBatch {
+  id: string;
+  relevant_count: number;
+  material: boolean;
+  reasons: string[];
+  outcome: "no_change" | "prescribed" | "pending_agent";
+  explanation: string;
+  evaluated_at: string;
+}
+
+export interface BlockResult {
+  plan: Plan;
+  focus_patterns: string[];
+  locked_patterns: string[];
+  total_minutes: number;
+  budget_minutes: number;
+  shortfalls: string[];
+}

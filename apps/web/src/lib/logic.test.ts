@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { toAttemptEvent } from "./api";
-import { formatMinutes, ratingBand } from "./format";
+import { BAND_LABELS, BAND_STYLES, formatMinutes, ratingBand } from "./format";
 import { attemptSchema, normalizeSlug, type AttemptFormValues } from "./schemas";
+import type { ReadinessBand } from "./types";
 
 const base: AttemptFormValues = {
   problem_slug: "two-sum",
@@ -115,5 +116,33 @@ describe("formatMinutes", () => {
     [95, "1h 35m"],
   ])("formats %i as %s", (input, expected) => {
     expect(formatMinutes(input)).toBe(expected);
+  });
+});
+
+describe("readiness bands", () => {
+  it("labels every band a pattern can be in", () => {
+    const bands: ReadinessBand[] = [
+      "calibrating",
+      "not_ready",
+      "developing",
+      "approaching",
+      "ready",
+    ];
+    for (const band of bands) {
+      expect(BAND_LABELS[band]).toBeTruthy();
+      expect(BAND_STYLES[band]).toBeTruthy();
+    }
+  });
+
+  it("shows 'Calibrating' rather than a number when evidence is thin", () => {
+    // Invariant 12: never present an uncalibrated estimate as a probability.
+    expect(BAND_LABELS.calibrating).toBe("Calibrating");
+    expect(BAND_LABELS.calibrating).not.toMatch(/\d/);
+  });
+
+  it("never renders a band label as a percentage", () => {
+    for (const label of Object.values(BAND_LABELS)) {
+      expect(label).not.toContain("%");
+    }
   });
 });

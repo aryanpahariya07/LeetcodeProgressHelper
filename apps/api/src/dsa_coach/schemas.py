@@ -217,3 +217,68 @@ class HealthOut(BaseModel):
     version: str
     database: Literal["ok", "unavailable"]
     catalogue_problems: int
+
+
+# -------------------------------------------------------------------- progress
+
+
+class PatternReadinessOut(BaseModel):
+    """Bands, never bare percentages, until calibration is proven (invariant 12)."""
+
+    pattern_id: uuid.UUID
+    slug: str
+    name: str
+    band: Literal["calibrating", "not_ready", "developing", "approaching", "ready"]
+    calibrated: bool
+    evidence_count: int
+    #: The raw estimate. Present for debugging and the calibration report; the UI
+    #: must render `band`, not this.
+    estimate: float
+    uncertainty: float
+
+
+class ReadinessReportOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_version: str
+    patterns: list[PatternReadinessOut]
+    calibrated_count: int
+    total_count: int
+    disclaimer: str
+
+
+class RetentionOut(BaseModel):
+    tracked: int
+    due: int
+    lapses: int
+
+
+class UnlockOut(BaseModel):
+    slug: str
+    unlocked: bool
+    blocked_by: list[str]
+    reason: str
+
+
+# ------------------------------------------------------------------- triggers
+
+
+class TriggerBatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    relevant_count: int
+    material: bool
+    reasons: list[str]
+    outcome: Literal["no_change", "prescribed", "pending_agent"]
+    explanation: str
+    evaluated_at: datetime
+
+
+class BlockResultOut(BaseModel):
+    plan: PlanOut
+    focus_patterns: list[str]
+    locked_patterns: list[str]
+    total_minutes: int
+    budget_minutes: int
+    shortfalls: list[str]

@@ -19,21 +19,23 @@ pass an interview.
 | [`docs/development.md`](docs/development.md) | Setup and commands |
 | [`CLAUDE.md`](CLAUDE.md) | Operating rules and invariants |
 
-## Status: Phase 0 complete
+## Status: Phase 1 complete
 
 | Phase | | |
 |---|---|---|
 | **0** | Usable skeleton — API, schema, catalogue, provisional plan, manual logging | **Done** |
-| 1 | Deterministic mechanism — readiness, prerequisites, retention, block assembly | Next |
-| 2 | Chrome extension — automatic capture, the 1-click questionnaire | |
+| **1** | Deterministic mechanism — readiness, prerequisites, retention, block assembly | **Done** |
+| 2 | Chrome extension — automatic capture, the 1-click questionnaire | Next |
 | 3 | Adaptive placement | |
 | 4 | AI judgment layer | |
 | 5 | Teaching — hints, diagnosis, review, mock interviews | |
 | 6 | Profile reconciliation and hardening | |
 
-Phase 0 is usable today: complete onboarding, get a provisional plan, log attempts
-by hand. There is no scheduler, no extension and no AI yet — see
-[What Phase 0 deliberately does not do](docs/development.md).
+Usable today: onboard, log attempts by hand, and get a real scheduled block built
+from your recorded evidence — readiness per pattern, prerequisite gating, spaced
+re-solves, and a plan review every three relevant attempts. All deterministic;
+there is no AI in the system yet, and by design there never needs to be for the
+scheduler to work.
 
 ## Quick start
 

@@ -7,10 +7,15 @@
 
 import type {
   Attempt,
+  BlockResult,
   EventResult,
   Health,
   Plan,
+  ReadinessReport,
+  Retention,
   Today,
+  TriggerBatch,
+  Unlock,
   User,
 } from "./types";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
@@ -96,6 +101,12 @@ export const api = {
     }),
 
   attempts: (limit = 50) => request<Attempt[]>(`/attempts?limit=${limit}`),
+
+  readiness: () => request<ReadinessReport>("/progress/readiness"),
+  retention: () => request<Retention>("/progress/retention"),
+  unlocks: () => request<Unlock[]>("/progress/unlocks"),
+  triggers: () => request<TriggerBatch[]>("/plan/triggers"),
+  buildNextBlock: () => request<BlockResult>("/plan/next-block", { method: "POST" }),
 };
 
 function splitCompanies(raw: string): string[] {

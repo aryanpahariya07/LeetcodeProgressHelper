@@ -1,12 +1,13 @@
 """ORM models.
 
-Phase 0 subset of the data model in spec §10. Tables not needed yet (devices,
-consents, pattern_ratings, review_schedule, prescriptions, agent_runs, ...) arrive
-with the phase that uses them, each behind its own migration.
+Phases 0-1 subset of the data model in spec §10. Tables not needed yet (devices,
+consents, prescriptions, plan_changes, agent_runs, attempt_code, ...) arrive with
+the phase that uses them, each behind its own migration.
 
 Conventions:
   - UUID primary keys (`sa.Uuid` — native on Postgres, CHAR(32) on SQLite).
-  - Timezone-aware timestamps, set Python-side so SQLite behaves like Postgres.
+  - Timezone-aware timestamps via `UtcDateTime`, so SQLite reads back aware
+    datetimes exactly as Postgres does.
   - Enums stored as VARCHAR + CHECK, so both dialects agree.
 """
 
@@ -22,7 +23,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     Enum,
     Float,
     ForeignKey,
@@ -32,10 +32,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from dsa_coach.db import Base
+from dsa_coach.db import Base, UtcDateTime
 
 
 def _now() -> datetime:
@@ -161,10 +163,8 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     preferred_language: Mapped[str] = mapped_column(String(32), default="python")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
 
     goals: Mapped[list[UserGoal]] = relationship(back_populates="user")
 
@@ -184,7 +184,7 @@ class UserGoal(Base):
     self_assessed_level: Mapped[Level] = mapped_column(_enum(Level, "level"))
     approx_problems_solved: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     user: Mapped[User] = relationship(back_populates="goals")
 
@@ -215,7 +215,7 @@ class CatalogueSource(Base):
     checksum: Mapped[str | None] = mapped_column(String(128), nullable=True)
     transformation_notes: Mapped[str] = mapped_column(Text, default="")
     known_limitations: Mapped[str] = mapped_column(Text, default="")
-    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    imported_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
 
 class Pattern(Base):
@@ -269,7 +269,7 @@ class Problem(Base):
         ForeignKey("catalogue_sources.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     patterns: Mapped[list[ProblemPattern]] = relationship(back_populates="problem")
 
@@ -331,8 +331,8 @@ class AttemptEvent(Base):
     attempt_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("attempts.id", ondelete="SET NULL"), nullable=True
     )
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    processed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
 
 class Attempt(Base):
@@ -354,8 +354,8 @@ class Attempt(Base):
 
     # --- telemetry (spec §3.1)
     language: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(UtcDateTime)
     active_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Recorded so the active-time heuristic stays auditable (spec §3.4).
     excluded_seconds: Mapped[int] = mapped_column(Integer, default=0)
@@ -374,12 +374,20 @@ class Attempt(Base):
     )
 
     # --- amendment (spec §3.3): corrections are recorded, never overwritten
-    amended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    amended_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     prior_values: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+    # Decided once, at ingestion, and stored (spec §6.6). Relevance depends on
+    # facts that are expensive to reconstruct later — whether a re-solve lapsed,
+    # whether an earlier attempt already counted this sitting — so recording it
+    # here is what makes the three-attempt trigger durable and idempotent.
+    counts_toward_trigger: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
 
     problem: Mapped[Problem] = relationship()
 
@@ -416,9 +424,9 @@ class Plan(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     # How this plan was produced. In Phase 0 always the static curriculum lookup.
     generation_context: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    valid_from: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    valid_until: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     items: Mapped[list[PlanItem]] = relationship(
         back_populates="plan", order_by="PlanItem.sequence"
@@ -453,3 +461,175 @@ class PlanItem(Base):
         UniqueConstraint("plan_id", "sequence", name="uq_plan_item_sequence"),
         Index("ix_plan_items_block", "block_id"),
     )
+
+
+# ------------------------------------------------------------------- readiness
+
+
+class ScoringConfigVersion(StrEnum):
+    """Bumped whenever a change to `tuning.py` invalidates stored estimates."""
+
+    V1 = "v1"
+
+
+class PatternRating(Base):
+    """Glicko-2 state per pattern (spec §6.2).
+
+    Experimental: Glicko-2 must beat the Beta baseline on real data (spec §6.3)
+    or be deleted. `readiness` and `uncertainty` are the model-agnostic values
+    the rest of the system reads, so the primary model can be swapped in config.
+    """
+
+    __tablename__ = "pattern_ratings"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    pattern_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patterns.id", ondelete="CASCADE"))
+
+    rating: Mapped[float] = mapped_column(Float)
+    rd: Mapped[float] = mapped_column(Float)
+    volatility: Mapped[float] = mapped_column(Float)
+
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_practiced_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    scoring_config_version: Mapped[ScoringConfigVersion] = mapped_column(
+        _enum(ScoringConfigVersion, "scoring_config_version"), default=ScoringConfigVersion.V1
+    )
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (UniqueConstraint("user_id", "pattern_id", name="uq_pattern_rating"),)
+
+
+class PatternBaselineBucket(Base):
+    """Beta-Binomial posterior per (pattern, rating bucket) — the PRIMARY model.
+
+    Not in spec §10, which predates §6.3 making the baseline primary. The Beta
+    model is bucketed by rating band, so it needs several rows per pattern and
+    cannot share `pattern_ratings`' single-row shape.
+    """
+
+    __tablename__ = "pattern_baseline_buckets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    pattern_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patterns.id", ondelete="CASCADE"))
+    bucket: Mapped[int] = mapped_column(Integer)
+
+    alpha: Mapped[float] = mapped_column(Float)
+    beta: Mapped[float] = mapped_column(Float)
+
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_practiced_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    scoring_config_version: Mapped[ScoringConfigVersion] = mapped_column(
+        _enum(ScoringConfigVersion, "scoring_config_version"), default=ScoringConfigVersion.V1
+    )
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "pattern_id", "bucket", name="uq_baseline_bucket"),
+        CheckConstraint("alpha > 0 AND beta > 0", name="ck_baseline_positive"),
+    )
+
+
+class ReadinessPrediction(Base):
+    """Every prediction, from every model, with what actually happened.
+
+    This is what makes the §6.3 calibration report and model bake-off possible.
+    Written before the outcome is known; resolved afterwards.
+    """
+
+    __tablename__ = "readiness_predictions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("problems.id", ondelete="CASCADE"))
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    model_version: Mapped[str] = mapped_column(String(64))
+    predicted_score: Mapped[float] = mapped_column(Float)
+    uncertainty: Mapped[float] = mapped_column(Float)
+    actual_outcome: Mapped[float | None] = mapped_column(Float, nullable=True)
+    predicted_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_readiness_predictions_model", "user_id", "model_version", "resolved_at"),
+    )
+
+
+# ------------------------------------------------------------------- retention
+
+
+class ReviewSchedule(Base):
+    """FSRS card state per solved problem (spec §6.5)."""
+
+    __tablename__ = "review_schedule"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("problems.id", ondelete="CASCADE"))
+
+    stability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    difficulty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    due_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    lapses: Mapped[int] = mapped_column(Integer, default=0)
+    reps: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Enough of the FSRS card to reconstruct it exactly.
+    fsrs_state: Mapped[int] = mapped_column(Integer)
+    fsrs_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Pinned library version. A bump must migrate or recompute, never silently
+    # reinterpret stored parameters (spec §6.5).
+    fsrs_version: Mapped[str] = mapped_column(String(32))
+
+    __table_args__ = (UniqueConstraint("user_id", "problem_id", name="uq_review_schedule"),)
+
+
+# -------------------------------------------------------------------- triggers
+
+
+class TriggerOutcome(StrEnum):
+    NO_CHANGE = "no_change"
+    PRESCRIBED = "prescribed"
+    #  Phase 1 has no agent to prescribe; a material change is recorded as
+    #  pending so Phase 4 can pick it up without re-deriving history.
+    PENDING_AGENT = "pending_agent"
+
+
+class TriggerBatch(Base):
+    """One evaluation after three relevant attempts (spec §6.6).
+
+    Durable so the counter is idempotent and never double-fires on a retry.
+    """
+
+    __tablename__ = "trigger_batches"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    attempt_ids: Mapped[list[str]] = mapped_column(JSON)
+    relevant_count: Mapped[int] = mapped_column(Integer)
+    material: Mapped[bool] = mapped_column(Boolean)
+    reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    outcome: Mapped[TriggerOutcome] = mapped_column(_enum(TriggerOutcome, "trigger_outcome"))
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    #: Readiness at this evaluation, so the next one has a baseline to diff
+    #: against without recomputing history.
+    readiness_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'")
+    )
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    evaluated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+    __table_args__ = (Index("ix_trigger_batches_user_time", "user_id", "evaluated_at"),)

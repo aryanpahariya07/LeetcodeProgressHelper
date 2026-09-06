@@ -91,18 +91,19 @@ matching one to the other.
 scripts, or task runners updates this section in the same commit. A stale command here
 is a bug — it is the first thing read every session.
 
-All verified working as of Phase 0. Toolchain: `uv` 0.11.8 (manages Python 3.12 —
+All verified working as of Phase 1. Toolchain: `uv` 0.11.8 (manages Python 3.12 —
 no system Python required), Node 24 / npm 11.
 
 ```bash
 # --- api (from apps/api) ---
 uv sync                                          # install deps
 uv run uvicorn dsa_coach.main:app --reload       # run api      :8000
-uv run pytest                                    # test         (53 tests)
+uv run pytest                                    # test         (217 tests)
 uv run ruff check .                              # lint
 uv run ruff format .                             # format
 uv run mypy                                      # typecheck    (strict)
 uv run alembic upgrade head                      # migrate
+uv run alembic check                             # schema drift (invariant 11)
 uv run alembic revision --autogenerate -m "..."  # new migration
 uv run dsa-coach seed                            # seed catalogue (idempotent)
 uv run dsa-coach import-catalogue --file F --rating-source S
@@ -110,7 +111,7 @@ uv run dsa-coach import-catalogue --file F --rating-source S
 # --- web (from apps/web) ---
 npm install
 npm run dev                                      # run web      :5173
-npm test                                         # test         (21 tests)
+npm test                                         # test         (24 tests)
 npm run lint
 npm run typecheck
 npm run build

@@ -3,6 +3,7 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { useHealth } from "./lib/queries";
 import { LogAttemptPage } from "./pages/LogAttemptPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { ProgressPage } from "./pages/ProgressPage";
 import { TodayPage } from "./pages/TodayPage";
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<TodayPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/progress" element={<ProgressPage />} />
           <Route path="/log" element={<LogAttemptPage />} />
           <Route path="*" element={<p className="text-sm text-slate-600">Not found.</p>} />
         </Routes>
@@ -31,6 +33,7 @@ function Header() {
           <span className="font-semibold">DSA Coach</span>
           <nav className="flex gap-4 text-sm">
             <NavItem to="/">Today</NavItem>
+            <NavItem to="/progress">Progress</NavItem>
             <NavItem to="/log">Log attempt</NavItem>
           </nav>
         </div>

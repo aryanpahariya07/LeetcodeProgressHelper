@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dsa_coach import __version__
 from dsa_coach.config import get_settings
-from dsa_coach.routers import attempts, extension, health, onboarding, plan
+from dsa_coach.routers import attempts, extension, health, onboarding, plan, progress
 
 API_PREFIX = "/api/v1"
 
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     v1.include_router(health.router)
     v1.include_router(onboarding.router)
     v1.include_router(plan.router)
+    v1.include_router(progress.router)
     v1.include_router(attempts.router)
     v1.include_router(extension.router)
     app.include_router(v1)
