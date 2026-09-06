@@ -690,3 +690,121 @@ class PairingCode(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+# ------------------------------------------------------------------ judgment
+
+
+class AgentRunStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    #: The provider was unreachable or unconfigured. Not an error in the product
+    #: sense — the deterministic scheduler carries on (invariant 4).
+    UNAVAILABLE = "unavailable"
+
+
+class AgentRun(Base):
+    """One invocation of the coach, successful or not (spec §7.4).
+
+    Errors are stored sanitized: a provider message can echo back the prompt,
+    and the prompt contains the user's practice history.
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    agent_name: Mapped[str] = mapped_column(String(80))
+    trigger: Mapped[str] = mapped_column(String(80))
+    status: Mapped[AgentRunStatus] = mapped_column(_enum(AgentRunStatus, "agent_run_status"))
+    runtime: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    input_summary: Mapped[str] = mapped_column(Text, default="")
+    output_summary: Mapped[str] = mapped_column(Text, default="")
+    trace_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    usage_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class PrescriptionRecord(Base):
+    """What the coach asked for — a block *shape*, never a list of problems.
+
+    Invariant 3: the agent prescribes; deterministic code selects the problem
+    IDs. There is deliberately no column here for them.
+    """
+
+    __tablename__ = "prescriptions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"), nullable=True
+    )
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    focus_patterns: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    rating_band_low: Mapped[int] = mapped_column(Integer)
+    rating_band_high: Mapped[int] = mapped_column(Integer)
+    size: Mapped[int] = mapped_column(Integer)
+    mix: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
+    timed: Mapped[bool] = mapped_column(Boolean, default=False)
+    diagnosis: Mapped[str] = mapped_column(Text, default="")
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    evidence_attempt_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    confidence: Mapped[str] = mapped_column(String(16), default="low")
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class ValidationResult(StrEnum):
+    ACCEPTED = "accepted"
+    CLAMPED = "clamped"
+    REJECTED = "rejected"
+
+
+class PrescriptionValidation(Base):
+    """The mechanism layer's verdict on a prescription (spec §7.2).
+
+    A prescription that violates a hard constraint is clamped and explained,
+    never silently dropped — and never silently applied either.
+    """
+
+    __tablename__ = "prescription_validations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    prescription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE"), index=True
+    )
+    result: Mapped[ValidationResult] = mapped_column(_enum(ValidationResult, "validation_result"))
+    violations: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    applied_plan_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class PlanChange(Base):
+    """An auditable, reversible record of every plan change (invariant 8)."""
+
+    __tablename__ = "plan_changes"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"))
+    before_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    after_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    trigger: Mapped[str] = mapped_column(String(80))
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Set when a later change reverted this one. History is never destroyed.
+    reverted_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)

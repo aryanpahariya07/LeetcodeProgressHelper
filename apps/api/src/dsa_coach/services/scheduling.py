@@ -27,6 +27,7 @@ from dsa_coach.mechanism.blocks import (
 from dsa_coach.mechanism.evidence import ProblemRef
 from dsa_coach.mechanism.placement import PlacementProgress, select_placement_candidates
 from dsa_coach.mechanism.prerequisites import PrerequisiteEdge, evaluate_unlocks
+from dsa_coach.mechanism.prescription import Prescription
 from dsa_coach.mechanism.readiness import MODELS, PRIMARY_MODEL, Prediction
 from dsa_coach.models import (
     Attempt,
@@ -101,9 +102,20 @@ def _focus_patterns(
 
 
 async def build_next_block(
-    session: AsyncSession, user: User, *, now: datetime | None = None, seed: int = 0
+    session: AsyncSession,
+    user: User,
+    *,
+    now: datetime | None = None,
+    seed: int = 0,
+    prescription: Prescription | None = None,
 ) -> BlockPlan:
-    """Assemble and persist the next block as a new active plan version."""
+    """Assemble and persist the next block as a new active plan version.
+
+    A `prescription` narrows the focus patterns, rating band, size and mix — but
+    it has already been validated and clamped by the mechanism layer, and it
+    still cannot name a single problem. Passing None runs the scheduler entirely
+    on its own, which is what happens whenever the coach is unavailable.
+    """
     now = now or datetime.now(UTC)
     model = MODELS[PRIMARY_MODEL]
 
@@ -123,7 +135,11 @@ async def build_next_block(
     # Provisionally unlocked patterns are schedulable but never a focus: their
     # prerequisites are unproven, so targeting them would be aiming at a guess.
     established = {pid for pid in unlocked if not unlocks[pid].provisional}
-    focus = _focus_patterns(predictions, established)
+    focus = (
+        [p.pattern_id for p in prescription.focus_patterns]
+        if prescription is not None and prescription.focus_patterns
+        else _focus_patterns(predictions, established)
+    )
 
     excluded = await _recent_problem_ids(session, user, now)
     due = await retention_service.due_problem_ids(session, user, now)
@@ -167,17 +183,23 @@ async def build_next_block(
         else:
             interleaved.append(candidate)
 
-    size = _block_size(goal.minutes_per_day)
+    size = prescription.size if prescription else _block_size(goal.minutes_per_day)
+    mix = BlockMix(*prescription.mix) if prescription is not None else BlockMix()
+    band = prescription.rating_band if prescription else None
     placement = await placement_service.progress(session, user)
 
     if placement.complete:
+        if band is not None:
+            low, high = band
+            weakness = [c for c in weakness if low <= c.rating <= high]
+            interleaved = [c for c in interleaved if low <= c.rating <= high]
         block = assemble_block(
             weakness=weakness,
             interleaved=interleaved,
             retention=retention,
             budget_minutes=goal.minutes_per_day,
             size=size,
-            mix=BlockMix(),
+            mix=mix,
             seed=seed,
         )
     else:
@@ -191,6 +213,7 @@ async def build_next_block(
             weakness + interleaved,
             observed_patterns=observed,
             size=size,
+            target_rating=tuning.PLACEMENT_START_RATING[goal.self_assessed_level],
         )
         block = assemble_block(
             weakness=[],
@@ -202,7 +225,9 @@ async def build_next_block(
             seed=seed,
         )
 
-    plan = await _persist(session, user, goal, block, focus, slugs, predictions, placement)
+    plan = await _persist(
+        session, user, goal, block, focus, slugs, predictions, placement, prescription
+    )
     locked = tuple(sorted(slugs[pid] for pid, state in unlocks.items() if not state.unlocked))
     return BlockPlan(
         plan=plan,
@@ -243,6 +268,7 @@ async def _persist(
     slugs: dict[UUID, str],
     predictions: dict[UUID, Prediction],
     placement: PlacementProgress,
+    prescription: Prescription | None = None,
 ) -> Plan:
     current = (
         (
@@ -274,9 +300,7 @@ async def _persist(
         status=PlanStatus.PROVISIONAL if not placement.complete else PlanStatus.ACTIVE,
         summary=_summary(focus_names, block, placement),
         generation_context={
-            "generator": (
-                "placement_block" if not placement.complete else "deterministic_block_assembler"
-            ),
+            "generator": _generator_name(placement, prescription),
             "generator_version": "phase3",
             "readiness_model": PRIMARY_MODEL,
             "focus_patterns": focus_names,
@@ -296,7 +320,14 @@ async def _persist(
             },
             "budget_minutes": block.budget_minutes,
             "shortfalls": list(block.shortfalls),
-            "note": "No AI involved. Deterministic given the same evidence and seed.",
+            "prescribed": prescription is not None,
+            "diagnosis": prescription.diagnosis if prescription else None,
+            "note": (
+                "The coach prescribed the shape; deterministic code selected the "
+                "problems (invariant 3)."
+                if prescription is not None
+                else "No AI involved. Deterministic given the same evidence and seed."
+            ),
         },
     )
     session.add(plan)
@@ -327,6 +358,12 @@ async def _persist(
             .options(selectinload(Plan.items).selectinload(PlanItem.problem))
         )
     ).scalar_one()
+
+
+def _generator_name(placement: PlacementProgress, prescription: Prescription | None) -> str:
+    if not placement.complete:
+        return "placement_block"
+    return "coach_prescribed_block" if prescription else "deterministic_block_assembler"
 
 
 def _summary(focus: list[str], block: Block, placement: PlacementProgress) -> str:

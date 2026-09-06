@@ -7,6 +7,7 @@ from dsa_coach import __version__
 from dsa_coach.config import get_settings
 from dsa_coach.routers import (
     attempts,
+    coach,
     devices,
     extension,
     health,
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     v1.include_router(attempts.router)
     v1.include_router(extension.router)
     v1.include_router(devices.router)
+    v1.include_router(coach.router)
     app.include_router(v1)
 
     return app

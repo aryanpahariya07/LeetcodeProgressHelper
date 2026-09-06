@@ -196,3 +196,21 @@ export interface Placement {
   target: number;
   reason: string;
 }
+
+export interface Violation {
+  kind: string;
+  detail: string;
+}
+
+export interface CoachRun {
+  run_id: string;
+  runtime: string;
+  model: string | null;
+  status: "succeeded" | "failed" | "unavailable";
+  used_fallback: boolean;
+  validation: "accepted" | "clamped" | "rejected" | null;
+  violations: Violation[];
+  diagnosis: string | null;
+  message: string;
+  plan: Plan;
+}

@@ -96,9 +96,16 @@ apps/api/src/dsa_coach/
     retention.py     FSRS wrapper; grade derived from demonstrated recall
     blocks.py        block assembly: mix, budget, determinism
     placement.py     stopping rule and information-maximising selection
+    prescription.py  validate + clamp a coach prescription (invariant 3)
     triggers.py      relevance and material-change detection
 
+  coach/           the judgment layer — the only place the provider is imported
+    runtime.py       CoachRuntime protocol, context and outcome types
+    stub.py          deterministic coach: test double AND production fallback
+    openai_runtime.py  OpenAI Agents SDK implementation
+
   services/        database glue around the mechanism layer
+    coach.py         run, validate, record, hand to the scheduler
     placement.py     placement progress — derived from evidence, never stored
     readiness.py     applies evidence to both models; logs predictions
     retention.py     review schedule persistence
@@ -168,8 +175,10 @@ limitations of every import. If a licensed contest-derived dataset is adopted la
 re-source the ratings through `import-catalogue --rating-source contest_derived`
 rather than editing values in place.
 
-## What Phase 3 deliberately does not do
+## What Phase 4 deliberately does not do
 
+- **No teaching features.** Hints, code diagnosis, post-solve review and mock
+  interviews are Phase 5. The coach currently prescribes, and nothing more.
 - **No code capture.** Off by default and not implemented; it arrives with the
   diagnosis feature in Phase 5, behind explicit consent.
 - **No amendment re-prompt.** Spec §3.3 wants the extension to notice you opening
@@ -285,3 +294,64 @@ is "still thin in places", and the plan afterwards is based on real attempts
 rather than a questionnaire. It would improve on its own if a contest-derived
 rating dataset replaced the manual estimates (§11), because the evidence would
 stop being discounted so heavily.
+
+## The judgment layer (Phase 4)
+
+The coach decides the **shape** of the next block. Deterministic code decides the
+problems. That split is invariant 3, and it is structural rather than a rule the
+model is asked to follow: `Prescription` has no field for a problem id, so there
+is no way to supply one.
+
+```
+coach/
+  runtime.py          the CoachRuntime protocol, context and outcome types
+  stub.py             deterministic coach — test double AND production fallback
+  openai_runtime.py   the only file that imports the provider
+mechanism/
+  prescription.py     validate + clamp — pure, and the reason invariant 3 holds
+services/coach.py     run, validate, record, hand to the scheduler
+```
+
+### Running without a key is a supported configuration
+
+Leave `OPENAI_API_KEY` unset and `build_runtime` returns the deterministic coach.
+There is no "AI disabled" branch anywhere else in the codebase, because there does
+not need to be one — the absence of a key simply selects a coach that reasons
+arithmetically instead of statistically, and everything downstream is unchanged.
+
+That is invariant 4, and `tests/test_coach.py::TestInvariantFour` is what keeps it
+true.
+
+### What happens to a bad prescription
+
+Every prescription is validated against facts it cannot argue with:
+
+| Situation | Outcome |
+|---|---|
+| Names a pattern that does not exist | dropped, recorded |
+| Targets a locked pattern | dropped, recorded |
+| Targets a *provisionally* unlocked pattern | dropped — aiming at unproven foundations is aiming at a guess |
+| Asks for more than the day allows | clamped to what fits |
+| Band outside the catalogue | clamped; an empty band widens rather than returning nothing |
+| Removes interleaving | refused, raised back to the floor |
+| Nothing valid left | rejected; the deterministic scheduler builds the plan |
+
+Clamping is never silent. The adjustments appear in the API response, in the UI,
+and in `prescription_validations`. The **original** prescription is stored, not
+the clamped one — otherwise the audit trail would agree with whatever was applied
+and tell you nothing.
+
+### Errors are sanitized
+
+A provider error message can echo the prompt back, and the prompt contains the
+user's practice history. Only the exception class name is stored. Verified: a
+wrong API key yields `error_code=unavailable`, `error_detail='AuthenticationError'`,
+and nothing else.
+
+### Agent evaluations
+
+`tests/test_coach.py` runs against deterministic doubles — no network, no key, no
+flakiness (spec §15). Each double is a specific way a model can be wrong:
+hallucinating a pattern, exceeding the budget, removing interleaving, timing out,
+rate-limiting, returning nothing at all. Live-model evaluation stays opt-in and is
+not part of the suite.

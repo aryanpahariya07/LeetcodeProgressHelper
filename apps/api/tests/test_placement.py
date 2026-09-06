@@ -20,6 +20,7 @@ from dsa_coach.mechanism.placement import (
     select_placement_candidates,
 )
 from dsa_coach.mechanism.readiness.base import Prediction
+from dsa_coach.models import Level
 
 BASE = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
 
@@ -118,7 +119,10 @@ class TestSelection:
 
     def test_selection_prefers_uncertain_problems(self) -> None:
         chosen = select_placement_candidates(
-            [cand(0.95), cand(0.52), cand(0.05)], observed_patterns=set(), size=1
+            [cand(0.95), cand(0.52), cand(0.05)],
+            observed_patterns=set(),
+            size=1,
+            target_rating=1500,
         )
 
         assert chosen[0].predicted_score == 0.52
@@ -134,7 +138,9 @@ class TestSelection:
             cand(0.75, (c,)),
         ]
 
-        chosen = select_placement_candidates(pool, observed_patterns=set(), size=3)
+        chosen = select_placement_candidates(
+            pool, observed_patterns=set(), size=3, target_rating=1500
+        )
         covered = {p for item in chosen for p in item.pattern_ids}
 
         assert covered == {a, b, c}
@@ -143,7 +149,9 @@ class TestSelection:
         a, b = uuid.uuid4(), uuid.uuid4()
         pool = [cand(0.50, (a,)), cand(0.80, (b,))]
 
-        chosen = select_placement_candidates(pool, observed_patterns={a}, size=1)
+        chosen = select_placement_candidates(
+            pool, observed_patterns={a}, size=1, target_rating=1500
+        )
 
         assert chosen[0].pattern_ids == (b,)
 
@@ -151,7 +159,9 @@ class TestSelection:
         a = uuid.uuid4()
         pool = [cand(0.50, (a,)), cand(0.52, (a,)), cand(0.95, (a,))]
 
-        chosen = select_placement_candidates(pool, observed_patterns=set(), size=2)
+        chosen = select_placement_candidates(
+            pool, observed_patterns=set(), size=2, target_rating=1500
+        )
 
         assert len(chosen) == 2
         assert all(c.predicted_score < 0.9 for c in chosen)
@@ -159,19 +169,28 @@ class TestSelection:
     def test_selection_is_deterministic(self) -> None:
         pool = [cand(0.4 + i / 100, (uuid.uuid4(),)) for i in range(10)]
 
-        first = select_placement_candidates(pool, observed_patterns=set(), size=4)
-        second = select_placement_candidates(pool, observed_patterns=set(), size=4)
+        first = select_placement_candidates(
+            pool, observed_patterns=set(), size=4, target_rating=1500
+        )
+        second = select_placement_candidates(
+            pool, observed_patterns=set(), size=4, target_rating=1500
+        )
 
         assert [c.problem_id for c in first] == [c.problem_id for c in second]
 
     def test_an_empty_pool_yields_nothing_rather_than_failing(self) -> None:
-        assert select_placement_candidates([], observed_patterns=set(), size=5) == []
+        assert (
+            select_placement_candidates([], observed_patterns=set(), size=5, target_rating=1500)
+            == []
+        )
 
     def test_never_returns_the_same_problem_twice(self) -> None:
         a = uuid.uuid4()
         pool = [cand(0.5, (a,)), cand(0.6, (a,))]
 
-        chosen = select_placement_candidates(pool, observed_patterns=set(), size=5)
+        chosen = select_placement_candidates(
+            pool, observed_patterns=set(), size=5, target_rating=1500
+        )
 
         assert len({c.problem_id for c in chosen}) == len(chosen)
 
@@ -291,3 +310,60 @@ class TestPlacementFlow:
         after = await hashmap_uncertainty()
 
         assert after < before
+
+
+class TestStartingLevel:
+    """Spec §9: placement starts near the rating implied by self-report.
+
+    At cold start every pattern carries the same prior, so every candidate scores
+    as equally informative. Without this tie-break the choice fell to arbitrary
+    id order — and once handed a beginner a single 1900-rated problem that
+    consumed the entire daily budget.
+    """
+
+    def test_a_beginner_is_pointed_at_easier_problems(self) -> None:
+        a, b = uuid.uuid4(), uuid.uuid4()
+        easy = Candidate(uuid.uuid4(), 1150, 18, predicted_score=0.35, pattern_ids=(a,))
+        hard = Candidate(uuid.uuid4(), 1950, 60, predicted_score=0.35, pattern_ids=(b,))
+
+        chosen = select_placement_candidates(
+            [hard, easy],
+            observed_patterns=set(),
+            size=1,
+            target_rating=tuning.PLACEMENT_START_RATING[Level.BEGINNER],
+        )
+
+        assert chosen[0].rating == 1150
+
+    def test_an_advanced_user_is_pointed_higher(self) -> None:
+        a, b = uuid.uuid4(), uuid.uuid4()
+        easy = Candidate(uuid.uuid4(), 1150, 18, predicted_score=0.65, pattern_ids=(a,))
+        harder = Candidate(uuid.uuid4(), 1700, 40, predicted_score=0.65, pattern_ids=(b,))
+
+        chosen = select_placement_candidates(
+            [easy, harder],
+            observed_patterns=set(),
+            size=1,
+            target_rating=tuning.PLACEMENT_START_RATING[Level.ADVANCED],
+        )
+
+        assert chosen[0].rating == 1700
+
+    def test_informativeness_still_outranks_the_starting_rating(self) -> None:
+        """The tie-break only applies to ties."""
+        a, b = uuid.uuid4(), uuid.uuid4()
+        on_target_but_certain = Candidate(
+            uuid.uuid4(), 1200, 20, predicted_score=0.98, pattern_ids=(a,)
+        )
+        off_target_but_uncertain = Candidate(
+            uuid.uuid4(), 1900, 55, predicted_score=0.50, pattern_ids=(b,)
+        )
+
+        chosen = select_placement_candidates(
+            [on_target_but_certain, off_target_but_uncertain],
+            observed_patterns=set(),
+            size=1,
+            target_rating=1200,
+        )
+
+        assert chosen[0].predicted_score == 0.50

@@ -11,6 +11,7 @@ import { api, ApiError } from "./api";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
 import type {
   Attempt,
+  CoachRun,
   DeviceInfo,
   Health,
   Placement,
@@ -134,4 +135,14 @@ export function useRevokeDevice() {
 
 export function usePlacement(): UseQueryResult<Placement, ApiError> {
   return useQuery({ queryKey: keys.placement, queryFn: api.placement, retry: false });
+}
+
+export function useAskCoach() {
+  const client = useQueryClient();
+  return useMutation<CoachRun, ApiError>({
+    mutationFn: api.askCoach,
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
 }

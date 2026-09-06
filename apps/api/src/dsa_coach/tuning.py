@@ -326,3 +326,39 @@ PLACEMENT_MIN_PROBLEMS: int = 4
 # Placement aims where the outcome is least certain: an attempt you are equally
 # likely to pass or fail carries the most information about where you stand.
 PLACEMENT_TARGET_SCORE: float = 0.5
+
+
+# ============================================================ PHASE 4: JUDGMENT
+
+# Floor on the interleaved share of any block, including one the coach asked for.
+#
+# Interleaving is not a preference to be negotiated away. Blocked practice
+# inflates in-session performance and degrades transfer — it feels better and
+# works worse — so a prescription that zeroes it out is clamped rather than
+# honoured.
+MIN_INTERLEAVED_SHARE: float = 0.15
+
+# What the coach is allowed to change in one go.
+#
+# Hypothesis: a coach that can rewrite everything is not adapting, it is
+# thrashing. Bounding the size keeps a single bad run from wiping a week.
+MAX_PRESCRIBED_FOCUS_PATTERNS: int = 3
+
+# Bounded retry for a failing coach run (spec §7.4).
+COACH_MAX_ATTEMPTS: int = 3
+COACH_BASE_DELAY_SECONDS: float = 1.0
+COACH_TIMEOUT_SECONDS: float = 45.0
+
+
+# Where placement starts, by self-assessed level (spec §9: "start near the rating
+# implied by self-report").
+#
+# This is a tie-break, not a claim. At cold start every pattern carries the same
+# prior, so every candidate looks equally informative and the choice would
+# otherwise fall to arbitrary id order — which once picked a single 1900-rated
+# problem that consumed an entire day's budget.
+PLACEMENT_START_RATING: dict[Level, int] = {
+    Level.BEGINNER: 1200,
+    Level.INTERMEDIATE: 1450,
+    Level.ADVANCED: 1650,
+}

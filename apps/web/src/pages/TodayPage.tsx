@@ -1,8 +1,8 @@
 import { Link } from "react-router-dom";
 
-import { Banner, Card, Empty, Loading } from "../components/ui";
+import { Banner, Button, Card, Empty, Loading } from "../components/ui";
 import { DIFFICULTY_CLASSES, formatMinutes, ratingBand } from "../lib/format";
-import { useMe, usePlacement, useToday } from "../lib/queries";
+import { useAskCoach, useMe, usePlacement, useToday } from "../lib/queries";
 import type { Placement, PlanItem } from "../lib/types";
 
 export function TodayPage() {
@@ -63,10 +63,12 @@ export function TodayPage() {
         </ol>
       )}
 
+      <CoachCard />
+
       <Card title="Logging attempts">
         <p className="text-sm text-slate-600">
-          Until the browser extension exists (Phase 2), attempts are logged by hand. This
-          path stays available permanently as the fallback.
+          The browser extension records attempts automatically. Logging by hand stays
+          available permanently as the fallback.
         </p>
         <Link
           to="/log"
@@ -128,5 +130,69 @@ function PlacementBanner({ placement }: { placement: Placement }) {
         {done} of up to {total} problems · {placement.reason}
       </p>
     </div>
+  );
+}
+
+/**
+ * Asking the coach for the next block.
+ *
+ * The result deliberately says which runtime produced it and whether the coach
+ * was used at all. A plan built without the coach is a normal outcome, not a
+ * hidden failure (invariant 4), and clamped advice says what was adjusted rather
+ * than quietly presenting itself as what was asked for.
+ */
+function CoachCard() {
+  const ask = useAskCoach();
+  const result = ask.data;
+
+  return (
+    <Card
+      title="Ask the coach"
+      description="The coach prescribes the shape of the next block. Deterministic code picks the problems."
+    >
+      <Button onClick={() => ask.mutate()} disabled={ask.isPending}>
+        {ask.isPending ? "Thinking…" : "Prescribe my next block"}
+      </Button>
+
+      {ask.isError && <div className="mt-4"><Banner tone="error">{ask.error.message}</Banner></div>}
+
+      {result && (
+        <div className="mt-4 space-y-3">
+          {result.used_fallback && (
+            <Banner tone="warning">
+              Built without the coach — it was unavailable. Everything else works as
+              normal.
+            </Banner>
+          )}
+
+          {result.diagnosis && (
+            <p className="text-sm text-slate-800">
+              <strong>Diagnosis.</strong> {result.diagnosis}
+            </p>
+          )}
+
+          <p className="text-sm text-slate-700">{result.message}</p>
+
+          {result.violations.length > 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-medium text-amber-900">
+                Adjusted before applying:
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-900">
+                {result.violations.map((v) => (
+                  <li key={`${v.kind}-${v.detail}`}>{v.detail}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-500">
+            {result.runtime}
+            {result.model ? ` · ${result.model}` : ""}
+            {result.validation ? ` · ${result.validation}` : ""}
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

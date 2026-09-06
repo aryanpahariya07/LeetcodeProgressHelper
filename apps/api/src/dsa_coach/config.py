@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     max_batch_size: int = 100
     max_request_bytes: int = 1_048_576
 
+    # --- runtime coach (Phase 4). Absent key => deterministic coach, and the
+    # product stays fully usable (invariant 4).
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4.1-mini"
+    agent_tracing_enabled: bool = False
+
     log_level: str = "INFO"
 
     @property

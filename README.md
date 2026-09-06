@@ -19,7 +19,7 @@ pass an interview.
 | [`docs/development.md`](docs/development.md) | Setup and commands |
 | [`CLAUDE.md`](CLAUDE.md) | Operating rules and invariants |
 
-## Status: Phase 3 complete
+## Status: Phase 4 complete
 
 | Phase | | |
 |---|---|---|
@@ -27,8 +27,8 @@ pass an interview.
 | **1** | Deterministic mechanism — readiness, prerequisites, retention, block assembly | **Done** |
 | **2** | Chrome extension — automatic capture, the 1-click questionnaire | **Built, not verified** |
 | **3** | Adaptive placement — informative first block, provisional to evidence-based | **Done** |
-| 4 | AI judgment layer | Next |
-| 5 | Teaching — hints, diagnosis, review, mock interviews | |
+| **4** | AI judgment layer — prescriptions, validation, clamping, fallback | **Done** |
+| 5 | Teaching — hints, diagnosis, review, mock interviews | Next |
 | 6 | Profile reconciliation and hardening | |
 
 > **Phase 2 caveat.** The extension is built, builds cleanly, and its logic is

@@ -8,6 +8,7 @@
 import type {
   Attempt,
   BlockResult,
+  CoachRun,
   DeviceInfo,
   EventResult,
   Health,
@@ -111,6 +112,7 @@ export const api = {
   unlocks: () => request<Unlock[]>("/progress/unlocks"),
   triggers: () => request<TriggerBatch[]>("/plan/triggers"),
   buildNextBlock: () => request<BlockResult>("/plan/next-block", { method: "POST" }),
+  askCoach: () => request<CoachRun>("/coach/prescribe", { method: "POST" }),
 
   devices: () => request<DeviceInfo[]>("/devices"),
   createPairingCode: () =>

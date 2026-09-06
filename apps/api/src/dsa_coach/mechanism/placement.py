@@ -139,16 +139,27 @@ def select_placement_candidates(
     *,
     observed_patterns: set[UUID],
     size: int,
+    target_rating: int,
 ) -> list[Candidate]:
     """Choose the next placement problems: breadth first, then informativeness.
 
     One problem per unobserved pattern before any pattern gets a second, so a
     short placement still spans the foundations rather than drilling into one.
-    Deterministic: ties break on problem id.
+
+    `target_rating` breaks ties, and matters more than it looks. At cold start
+    every pattern carries the same prior, so every candidate is *equally*
+    informative and the ordering would otherwise fall to arbitrary id order —
+    which can hand a beginner a single very hard problem that eats the whole
+    budget. Starting near the rating implied by self-report (spec §9) is the
+    stated remedy.
     """
     ordered = sorted(
         candidates,
-        key=lambda c: (-information_value(c), str(c.problem_id)),
+        key=lambda c: (
+            -information_value(c),
+            abs(c.rating - target_rating),
+            str(c.problem_id),
+        ),
     )
 
     chosen: list[Candidate] = []

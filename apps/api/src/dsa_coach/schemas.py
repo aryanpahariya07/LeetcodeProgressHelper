@@ -346,3 +346,46 @@ class DeviceOut(BaseModel):
     last_seen_at: datetime | None
     revoked_at: datetime | None
     active: bool
+
+
+# ---------------------------------------------------------------------- coach
+
+
+class ViolationOut(BaseModel):
+    kind: str
+    detail: str
+
+
+class CoachRunOut(BaseModel):
+    """What the coach did, and whether it was trusted.
+
+    `used_fallback` is surfaced deliberately: a plan built without the coach is
+    a normal outcome, not a hidden failure, and the UI says so (invariant 4).
+    """
+
+    run_id: uuid.UUID
+    runtime: str
+    model: str | None
+    status: Literal["succeeded", "failed", "unavailable"]
+    used_fallback: bool
+    validation: Literal["accepted", "clamped", "rejected"] | None
+    violations: list[ViolationOut]
+    diagnosis: str | None
+    message: str
+    plan: PlanOut
+
+
+class AgentRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: uuid.UUID
+    agent_name: str
+    trigger: str
+    status: str
+    runtime: str
+    model: str | None
+    input_summary: str
+    output_summary: str
+    error_code: str | None
+    started_at: datetime
+    finished_at: datetime | None
