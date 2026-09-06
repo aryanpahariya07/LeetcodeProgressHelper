@@ -9,6 +9,8 @@ import type {
   Attempt,
   BlockResult,
   CoachRun,
+  ConsentResult,
+  ConsentState,
   DeviceInfo,
   EventResult,
   Health,
@@ -17,6 +19,7 @@ import type {
   Placement,
   ReadinessReport,
   Retention,
+  Teaching,
   Today,
   TriggerBatch,
   Unlock,
@@ -113,6 +116,21 @@ export const api = {
   triggers: () => request<TriggerBatch[]>("/plan/triggers"),
   buildNextBlock: () => request<BlockResult>("/plan/next-block", { method: "POST" }),
   askCoach: () => request<CoachRun>("/coach/prescribe", { method: "POST" }),
+
+  consentState: () => request<ConsentState>("/consents/code-capture"),
+  setConsent: (decision: "once" | "always" | "never") =>
+    request<ConsentResult>("/consents/code-capture", {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
+  revokeConsent: () =>
+    request<ConsentResult>("/consents/code-capture", { method: "DELETE" }),
+
+  hint: (problemSlug: string) =>
+    request<Teaching>("/coach/hint", {
+      method: "POST",
+      body: JSON.stringify({ problem_slug: problemSlug }),
+    }),
 
   devices: () => request<DeviceInfo[]>("/devices"),
   createPairingCode: () =>

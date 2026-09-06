@@ -175,18 +175,20 @@ limitations of every import. If a licensed contest-derived dataset is adopted la
 re-source the ratings through `import-catalogue --rating-source contest_derived`
 rather than editing values in place.
 
-## What Phase 4 deliberately does not do
+## What Phase 5 deliberately does not do
 
-- **No teaching features.** Hints, code diagnosis, post-solve review and mock
-  interviews are Phase 5. The coach currently prescribes, and nothing more.
-- **No code capture.** Off by default and not implemented; it arrives with the
-  diagnosis feature in Phase 5, behind explicit consent.
+- **No public-profile sync.** Reconciling LeetCode's accepted-problem history
+  against recorded attempts is Phase 6.
+- **No calibration report.** The readiness bake-off (spec §6.3) runs in Phase 6,
+  and until it does, readiness stays in bands.
+- **No scheduled retention purge.** `purge_expired` exists and is tested, but
+  nothing calls it on a timer yet.
 - **No amendment re-prompt.** Spec §3.3 wants the extension to notice you opening
   the editorial after a failure and ask again. Not built yet — attempts are
   editable in the web app instead.
-- **No AI.** The coach arrives in Phase 4. Until then a material change is recorded
-  as `pending_agent` and the deterministic scheduler carries on regardless — which
-  is the behaviour invariant 4 requires permanently, not a stopgap.
+- **No automatic coach runs.** A material change is recorded as `pending_agent`
+  and the coach is asked on demand. Scheduling that automatically is Phase 6 work;
+  the deterministic scheduler carries on regardless either way.
 - **Dashboard auth is still by locality.** The extension now holds a real scoped,
   revocable credential; the dashboard is trusted because it is on localhost. Both
   paths go through `get_current_user()`, so a real session token is one function.
@@ -355,3 +357,70 @@ flakiness (spec §15). Each double is a specific way a model can be wrong:
 hallucinating a pattern, exceeding the budget, removing interleaving, timing out,
 rate-limiting, returning nothing at all. Live-model evaluation stays opt-in and is
 not part of the suite.
+
+## Teaching and code consent (Phase 5)
+
+```
+mechanism/
+  hints.py         the ladder: level gating and the no-code check
+  complexity.py    static complexity estimate from source
+coach/teaching.py  TeachingRuntime: hint, diagnose, review, mock (+ stub)
+services/
+  consent.py       consent state, code storage, deletion, retention purge
+  teaching.py      orchestration, and what gets recorded
+```
+
+### The hint ladder holds because it is checked, not requested
+
+The model is told not to include code below level 5. It is also **checked**, on
+every hint, before the user sees it — a hint that contains code is refused
+outright rather than stripped, because a snippet with its lines removed is still
+a spoiler.
+
+Levels cannot be skipped either. Asking for level 5 on your first hint gets you
+level 1. Without that, "give me a hint" quietly becomes "give me the answer", and
+the hint level recorded against the attempt stops meaning anything — which
+matters, because that level feeds the readiness score.
+
+The code detector is deliberately trigger-happy. A false positive costs a
+slightly worse hint; a false negative costs the whole exercise.
+
+### Code capture
+
+Off by default. Three decisions, and they are genuinely different:
+
+| Decision | Sent to OpenAI | Stored locally |
+|---|---|---|
+| not set | no | no |
+| `once` | yes, this request | **no** |
+| `always` | yes | yes, 90 days |
+| `never` | no | no — and existing snippets are deleted |
+
+**Withdrawing deletes.** Not "stops collecting" — a real `DELETE`. `attempt_code`
+is a separate table precisely so every snippet can go without touching a single
+piece of practice evidence.
+
+The disclosure text is hashed, and the hash is stored with the decision. Edit the
+wording materially and every existing consent is invalidated, because agreement
+to weaker wording is not agreement to this wording. `disclosure_hash()` reads the
+constant at call time rather than binding it as a default argument — binding it
+would have frozen the hash at import and made the whole mechanism inert.
+
+### Diagnosis works without consent
+
+Deliberately. Requiring code to get any help at all would make the consent
+meaningless — you would be choosing between privacy and the product. Without
+code the diagnosis is thinner, `degraded: true` says so, and what it can still
+do is name a *repeating* blocker, which is often the more useful observation
+anyway.
+
+### The complexity estimate is a heuristic
+
+`mechanism/complexity.py` counts loop nesting, spots sorts and halving searches,
+and notices recursion. It does not understand the code. It returns a confidence,
+never claims better than "medium", and displays as "looks like O(n^2)" rather
+than a verdict. Its job is to recover the `approach_complexity` signal the 1-2
+click questionnaire has no room to ask for (spec §3.5) — and to flag the one case
+worth flagging: an accepted solution that would not have survived a bigger input.
+
+It is never used to score the user.

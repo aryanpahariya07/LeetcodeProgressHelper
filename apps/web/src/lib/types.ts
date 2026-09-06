@@ -214,3 +214,29 @@ export interface CoachRun {
   message: string;
   plan: Plan;
 }
+
+export interface ConsentState {
+  decision: "once" | "always" | "never" | null;
+  needs_prompt: boolean;
+  disclosure: string;
+  version: string;
+  stored_snippets: number;
+}
+
+export interface ConsentResult {
+  decision: "once" | "always" | "never";
+  deleted_snippets: number;
+  message: string;
+}
+
+export interface Teaching {
+  ok: boolean;
+  kind: "hint" | "diagnosis" | "review" | "mock";
+  text: string;
+  hint_level: number | null;
+  level_description: string | null;
+  degraded: boolean;
+  runtime: string;
+  cited_attempt_ids: string[];
+  reason: string;
+}

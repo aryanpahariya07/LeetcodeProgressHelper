@@ -808,3 +808,110 @@ class PlanChange(Base):
     #: Set when a later change reverted this one. History is never destroyed.
     reverted_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+# ------------------------------------------------------------------- teaching
+
+
+class ConsentScope(StrEnum):
+    MONITORING = "monitoring"
+    CODE_CAPTURE = "code_capture"
+
+
+class ConsentDecision(StrEnum):
+    #: Analyse this submission, do not persist it.
+    ONCE = "once"
+    ALWAYS = "always"
+    NEVER = "never"
+
+
+class Consent(Base):
+    """A recorded, versioned, revocable decision (spec §8).
+
+    `disclosure_text_hash` is what makes the version meaningful: if the wording
+    of what the user agreed to changes materially, the hash changes and consent
+    must be asked for again. Consent to an older, weaker disclosure is not
+    consent to this one.
+    """
+
+    __tablename__ = "consents"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    scope: Mapped[ConsentScope] = mapped_column(_enum(ConsentScope, "consent_scope"))
+    decision: Mapped[ConsentDecision] = mapped_column(_enum(ConsentDecision, "consent_decision"))
+    consent_version: Mapped[str] = mapped_column(String(32))
+    disclosure_text_hash: Mapped[str] = mapped_column(String(64))
+    granted_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
+
+
+class AttemptCode(Base):
+    """The user's submitted code, stored only under an 'always' consent.
+
+    Separate from `attempts` precisely so it can be dropped independently:
+    deleting every row here removes all stored code without touching a single
+    piece of practice evidence.
+    """
+
+    __tablename__ = "attempt_code"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("attempts.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    code: Mapped[str] = mapped_column(Text)
+    #: Hard-deleted by a scheduled job once this passes (spec §8).
+    retention_until: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+
+class TeachingKind(StrEnum):
+    HINT = "hint"
+    DIAGNOSIS = "diagnosis"
+    REVIEW = "review"
+    MOCK = "mock"
+
+
+class TeachingExchange(Base):
+    """One teaching interaction, kept so the coach page has a history.
+
+    `hint_level` is the load-bearing field: a problem solved at level 4 is not
+    the same evidence as one solved cold, and the readiness model needs to know
+    which it was (spec §7.3).
+    """
+
+    __tablename__ = "teaching_exchanges"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("problems.id", ondelete="SET NULL"), nullable=True
+    )
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    agent_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[TeachingKind] = mapped_column(_enum(TeachingKind, "teaching_kind"))
+    hint_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    #: True when the answer was produced without the user's code.
+    degraded: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+    __table_args__ = (Index("ix_teaching_user_time", "user_id", "created_at"),)

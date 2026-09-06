@@ -12,12 +12,15 @@ import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
 import type {
   Attempt,
   CoachRun,
+  ConsentResult,
+  ConsentState,
   DeviceInfo,
   Health,
   Placement,
   Plan,
   ReadinessReport,
   Retention,
+  Teaching,
   Today,
   TriggerBatch,
   Unlock,
@@ -36,6 +39,7 @@ export const keys = {
   unlocks: ["progress", "unlocks"] as const,
   triggers: ["plan", "triggers"] as const,
   devices: ["devices"] as const,
+  consent: ["consents", "code-capture"] as const,
 };
 
 export function useHealth(): UseQueryResult<Health, ApiError> {
@@ -144,5 +148,35 @@ export function useAskCoach() {
     onSuccess: () => {
       void client.invalidateQueries();
     },
+  });
+}
+
+export function useConsent(): UseQueryResult<ConsentState, ApiError> {
+  return useQuery({ queryKey: keys.consent, queryFn: api.consentState, retry: false });
+}
+
+export function useSetConsent() {
+  const client = useQueryClient();
+  return useMutation<ConsentResult, ApiError, "once" | "always" | "never">({
+    mutationFn: (decision) => api.setConsent(decision),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.consent });
+    },
+  });
+}
+
+export function useRevokeConsent() {
+  const client = useQueryClient();
+  return useMutation<ConsentResult, ApiError>({
+    mutationFn: api.revokeConsent,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.consent });
+    },
+  });
+}
+
+export function useHint() {
+  return useMutation<Teaching, ApiError, string>({
+    mutationFn: (problemSlug) => api.hint(problemSlug),
   });
 }

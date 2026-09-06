@@ -389,3 +389,77 @@ class AgentRunOut(BaseModel):
     error_code: str | None
     started_at: datetime
     finished_at: datetime | None
+
+
+# ------------------------------------------------------------------- teaching
+
+
+class ConsentStateOut(BaseModel):
+    """What the user has decided, and the exact words they decided against."""
+
+    decision: Literal["once", "always", "never"] | None
+    needs_prompt: bool
+    disclosure: str
+    version: str
+    stored_snippets: int
+
+
+class ConsentIn(BaseModel):
+    decision: Literal["once", "always", "never"]
+
+
+class ConsentResultOut(BaseModel):
+    decision: Literal["once", "always", "never"]
+    #: Choosing `never` deletes what was already stored, and says how much.
+    deleted_snippets: int
+    message: str
+
+
+class HintIn(BaseModel):
+    problem_slug: Annotated[str, Field(min_length=1, max_length=200)]
+    #: A ceiling, not a jump — you always get the next level up from what you
+    #: have seen, never more (spec §7.3).
+    level: Annotated[int | None, Field(ge=1, le=5)] = None
+
+
+class TeachingOut(BaseModel):
+    ok: bool
+    kind: Literal["hint", "diagnosis", "review", "mock"]
+    text: str
+    hint_level: int | None = None
+    level_description: str | None = None
+    #: True when the answer was produced without the user's code.
+    degraded: bool = False
+    runtime: str = ""
+    cited_attempt_ids: list[uuid.UUID] = Field(default_factory=list)
+    reason: str = ""
+
+
+class DiagnoseIn(BaseModel):
+    attempt_id: uuid.UUID
+    #: Sent only for this request unless consent is `always`.
+    code: str | None = Field(default=None, max_length=100_000)
+
+
+class MockTurnIn(BaseModel):
+    problem_slug: Annotated[str, Field(min_length=1, max_length=200)]
+    message: Annotated[str, Field(min_length=1, max_length=8000)]
+
+
+class TeachingExchangeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    hint_level: int | None
+    content: str
+    degraded: bool
+    created_at: datetime
+
+
+class ComplexityOut(BaseModel):
+    """Presented as "looks like", never as fact — it reads syntax, not meaning."""
+
+    estimate: str
+    confidence: str
+    signals: list[str]

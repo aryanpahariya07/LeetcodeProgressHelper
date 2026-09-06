@@ -14,6 +14,7 @@ from dsa_coach.routers import (
     onboarding,
     plan,
     progress,
+    teaching,
 )
 
 API_PREFIX = "/api/v1"
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     v1.include_router(extension.router)
     v1.include_router(devices.router)
     v1.include_router(coach.router)
+    v1.include_router(teaching.router)
     app.include_router(v1)
 
     return app

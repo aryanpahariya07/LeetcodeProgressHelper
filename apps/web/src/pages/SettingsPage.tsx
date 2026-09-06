@@ -2,7 +2,14 @@ import { useState } from "react";
 
 import { Banner, Button, Card, Empty, Loading } from "../components/ui";
 import { formatDateTime } from "../lib/format";
-import { useCreatePairingCode, useDevices, useRevokeDevice } from "../lib/queries";
+import {
+  useConsent,
+  useCreatePairingCode,
+  useDevices,
+  useRevokeConsent,
+  useSetConsent,
+} from "../lib/queries";
+import { useRevokeDevice } from "../lib/queries";
 import type { DeviceInfo, PairingCode } from "../lib/types";
 
 export function SettingsPage() {
@@ -72,6 +79,8 @@ export function SettingsPage() {
         )}
       </Card>
 
+      <CodeCaptureCard />
+
       <Card title="What the extension can and cannot do">
         <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
           <li>It runs only on LeetCode problem pages — nowhere else on the web.</li>
@@ -79,7 +88,7 @@ export function SettingsPage() {
             Its credential can <strong>send attempts and read its own settings</strong>. It
             cannot read your plan, your progress, or your other devices.
           </li>
-          <li>Code capture is off and is not part of this phase.</li>
+          <li>Code capture is off by default and controlled above.</li>
           <li>Pausing it in the extension stops recording without disconnecting.</li>
         </ul>
       </Card>
@@ -119,5 +128,79 @@ function DeviceRow({
         </Button>
       )}
     </li>
+  );
+}
+
+/**
+ * Code-capture consent (spec §8).
+ *
+ * Off by default, and the disclosure is shown verbatim from the server rather
+ * than paraphrased here — the exact wording is what the decision is recorded
+ * against, and a friendlier summary in the UI would mean the user agreed to
+ * something other than what was stored.
+ */
+function CodeCaptureCard() {
+  const consent = useConsent();
+  const setConsent = useSetConsent();
+  const revoke = useRevokeConsent();
+  const state = consent.data;
+
+  return (
+    <Card
+      title="Code capture"
+      description="Needed for failure diagnosis and solution review. Off unless you turn it on."
+    >
+      {consent.isLoading && <Loading label="Loading…" />}
+
+      {state && (
+        <>
+          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            {state.disclosure}
+          </p>
+
+          <p className="mt-3 text-sm text-slate-600">
+            Current setting:{" "}
+            <strong>
+              {state.decision === "always"
+                ? "Always allowed"
+                : state.decision === "never"
+                  ? "Not allowed"
+                  : state.decision === "once"
+                    ? "Allowed once"
+                    : "Not set"}
+            </strong>
+            {state.stored_snippets > 0 && ` · ${state.stored_snippets} snippet(s) stored`}
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => setConsent.mutate("once")} disabled={setConsent.isPending}>
+              Allow once
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setConsent.mutate("always")}
+              disabled={setConsent.isPending}
+            >
+              Always allow
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => revoke.mutate()}
+              disabled={revoke.isPending}
+            >
+              Turn off and delete
+            </Button>
+          </div>
+
+          {(setConsent.data || revoke.data) && (
+            <div className="mt-3">
+              <Banner tone="success">
+                {(revoke.data ?? setConsent.data)!.message}
+              </Banner>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
