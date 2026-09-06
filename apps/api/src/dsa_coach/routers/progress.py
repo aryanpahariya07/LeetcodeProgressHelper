@@ -13,12 +13,14 @@ from dsa_coach.models import Pattern, PatternPrerequisite
 from dsa_coach.schemas import (
     BlockResultOut,
     PatternReadinessOut,
+    PlacementOut,
     PlanOut,
     ReadinessReportOut,
     RetentionOut,
     TriggerBatchOut,
     UnlockOut,
 )
+from dsa_coach.services import placement as placement_service
 from dsa_coach.services import readiness as readiness_service
 from dsa_coach.services import retention as retention_service
 from dsa_coach.services import scheduling as scheduling_service
@@ -101,6 +103,26 @@ async def unlocks(user: CurrentUser, session: DbSession) -> list[UnlockOut]:
     ]
 
 
+@router.get("/progress/placement", response_model=PlacementOut)
+async def placement(user: CurrentUser, session: DbSession) -> PlacementOut:
+    """How far placement has got.
+
+    Placement runs through ordinary practice (spec §9). An incomplete placement
+    never blocks anything — it only means the plan is still provisional.
+    """
+    progress = await placement_service.progress(session, user)
+    return PlacementOut(
+        complete=progress.complete,
+        attempts=progress.attempts,
+        max_attempts=progress.max_attempts,
+        remaining=progress.remaining,
+        covered=progress.covered,
+        calibrated=progress.calibrated,
+        target=progress.target,
+        reason=progress.reason,
+    )
+
+
 @router.post("/plan/next-block", response_model=BlockResultOut)
 async def next_block(user: CurrentUser, session: DbSession) -> BlockResultOut:
     """Build the next block deterministically.
@@ -109,8 +131,23 @@ async def next_block(user: CurrentUser, session: DbSession) -> BlockResultOut:
     unavailable (invariant 4).
     """
     result = await scheduling_service.build_next_block(session, user)
+    progress = result.placement
     return BlockResultOut(
         plan=PlanOut.model_validate(result.plan),
+        placement=(
+            None
+            if progress is None
+            else PlacementOut(
+                complete=progress.complete,
+                attempts=progress.attempts,
+                max_attempts=progress.max_attempts,
+                remaining=progress.remaining,
+                covered=progress.covered,
+                calibrated=progress.calibrated,
+                target=progress.target,
+                reason=progress.reason,
+            )
+        ),
         focus_patterns=list(result.focus_pattern_slugs),
         locked_patterns=list(result.locked_pattern_slugs),
         total_minutes=result.block.total_minutes,

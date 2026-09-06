@@ -303,3 +303,26 @@ TRIGGER_ATTEMPT_COUNT: int = 3
 MATERIAL_READINESS_DELTA: float = 0.08
 # Consecutive identical blockers on one pattern that are material on their own.
 MATERIAL_REPEATED_BLOCKER_COUNT: int = 3
+
+
+# ============================================================ PHASE 3: PLACEMENT
+
+# Placement is not a test. It is the first practice block, chosen to be
+# informative (spec §9). The user is never blocked waiting for it to finish.
+
+# Hard ceiling on placement problems.
+#
+# Hypothesis: twelve real observations tell you more about someone than any
+# questionnaire, and beyond that the marginal information is not worth making
+# the opening week feel like an exam.
+PLACEMENT_MAX_PROBLEMS: int = 12
+
+# Floor, so a lucky start cannot end placement after two problems.
+#
+# Hypothesis: four attempts is the least that could show breadth across the
+# foundational patterns.
+PLACEMENT_MIN_PROBLEMS: int = 4
+
+# Placement aims where the outcome is least certain: an attempt you are equally
+# likely to pass or fail carries the most information about where you stand.
+PLACEMENT_TARGET_SCORE: float = 0.5

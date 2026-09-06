@@ -19,15 +19,15 @@ pass an interview.
 | [`docs/development.md`](docs/development.md) | Setup and commands |
 | [`CLAUDE.md`](CLAUDE.md) | Operating rules and invariants |
 
-## Status: Phase 2 built
+## Status: Phase 3 complete
 
 | Phase | | |
 |---|---|---|
 | **0** | Usable skeleton — API, schema, catalogue, provisional plan, manual logging | **Done** |
 | **1** | Deterministic mechanism — readiness, prerequisites, retention, block assembly | **Done** |
 | **2** | Chrome extension — automatic capture, the 1-click questionnaire | **Built, not verified** |
-| 3 | Adaptive placement | Next |
-| 4 | AI judgment layer | |
+| **3** | Adaptive placement — informative first block, provisional to evidence-based | **Done** |
+| 4 | AI judgment layer | Next |
 | 5 | Teaching — hints, diagnosis, review, mock interviews | |
 | 6 | Profile reconciliation and hardening | |
 

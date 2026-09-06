@@ -13,6 +13,7 @@ import type {
   Attempt,
   DeviceInfo,
   Health,
+  Placement,
   Plan,
   ReadinessReport,
   Retention,
@@ -29,6 +30,7 @@ export const keys = {
   plan: ["plan", "current"] as const,
   attempts: ["attempts"] as const,
   readiness: ["progress", "readiness"] as const,
+  placement: ["progress", "placement"] as const,
   retention: ["progress", "retention"] as const,
   unlocks: ["progress", "unlocks"] as const,
   triggers: ["plan", "triggers"] as const,
@@ -128,4 +130,8 @@ export function useRevokeDevice() {
       void client.invalidateQueries({ queryKey: keys.devices });
     },
   });
+}
+
+export function usePlacement(): UseQueryResult<Placement, ApiError> {
+  return useQuery({ queryKey: keys.placement, queryFn: api.placement, retry: false });
 }

@@ -185,3 +185,14 @@ export interface DeviceInfo {
   revoked_at: string | null;
   active: boolean;
 }
+
+export interface Placement {
+  complete: boolean;
+  attempts: number;
+  max_attempts: number;
+  remaining: number;
+  covered: number;
+  calibrated: number;
+  target: number;
+  reason: string;
+}

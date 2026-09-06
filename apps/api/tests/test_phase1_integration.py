@@ -174,12 +174,12 @@ class TestDeterministicScheduling:
 
         result = (await onboarded.post("/plan/next-block")).json()
 
-        assert result["plan"]["status"] == "active"
         assert len(result["plan"]["items"]) > 0
-        assert result["plan"]["generation_context"]["generator"] == (
-            "deterministic_block_assembler"
-        )
         assert "No AI" in result["plan"]["generation_context"]["note"]
+        # Three attempts is still placement, so the plan says so rather than
+        # presenting itself as settled.
+        assert result["plan"]["status"] == "provisional"
+        assert result["plan"]["generation_context"]["generator"] == "placement_block"
 
     async def test_the_block_respects_the_daily_budget(self, onboarded: AsyncClient) -> None:
         result = (await onboarded.post("/plan/next-block")).json()
@@ -227,15 +227,15 @@ class TestDeterministicScheduling:
         assert result["locked_patterns"] == []
         assert len(result["plan"]["items"]) > 0
 
-    async def test_building_a_block_supersedes_the_provisional_plan(
+    async def test_building_a_block_supersedes_the_previous_plan(
         self, onboarded: AsyncClient
     ) -> None:
         await onboarded.post("/plan/next-block")
 
         current = (await onboarded.get("/plan/current")).json()
 
-        assert current["status"] == "active"
         assert current["version"] == 2
+        assert current["generation_context"]["generator_version"] == "phase3"
 
     async def test_unlocks_endpoint_distinguishes_provisional_from_earned(
         self, onboarded: AsyncClient

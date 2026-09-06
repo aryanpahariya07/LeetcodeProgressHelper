@@ -32,6 +32,9 @@ class Candidate:
     minutes: int
     #: Predicted success from the primary readiness model, for ordering.
     predicted_score: float
+    #: Patterns this problem exercises. Placement uses them to spread coverage
+    #: across the foundations rather than drilling into one (spec §9).
+    pattern_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)

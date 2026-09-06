@@ -279,8 +279,30 @@ class TriggerBatchOut(BaseModel):
     evaluated_at: datetime
 
 
+# ------------------------------------------------------------------ placement
+
+
+class PlacementOut(BaseModel):
+    """Progress through placement (spec §9).
+
+    Placement is the first practice block, not a gate — `complete: false` never
+    means the user is blocked from anything.
+    """
+
+    complete: bool
+    attempts: int
+    max_attempts: int
+    remaining: int
+    covered: int
+    calibrated: int
+    target: int
+    reason: str
+
+
 class BlockResultOut(BaseModel):
     plan: PlanOut
+    #: Present only while placement is still running.
+    placement: PlacementOut | None = None
     focus_patterns: list[str]
     locked_patterns: list[str]
     total_minutes: int

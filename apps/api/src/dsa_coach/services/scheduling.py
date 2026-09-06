@@ -25,6 +25,7 @@ from dsa_coach.mechanism.blocks import (
     estimate_minutes,
 )
 from dsa_coach.mechanism.evidence import ProblemRef
+from dsa_coach.mechanism.placement import PlacementProgress, select_placement_candidates
 from dsa_coach.mechanism.prerequisites import PrerequisiteEdge, evaluate_unlocks
 from dsa_coach.mechanism.readiness import MODELS, PRIMARY_MODEL, Prediction
 from dsa_coach.models import (
@@ -42,6 +43,7 @@ from dsa_coach.models import (
     User,
     UserGoal,
 )
+from dsa_coach.services import placement as placement_service
 from dsa_coach.services import readiness as readiness_service
 from dsa_coach.services import retention as retention_service
 
@@ -52,6 +54,9 @@ class BlockPlan:
     block: Block
     focus_pattern_slugs: tuple[str, ...]
     locked_pattern_slugs: tuple[str, ...]
+    #: Set while placement is still running (spec §9). The block is chosen for
+    #: information rather than for targeting a known weakness.
+    placement: PlacementProgress | None = None
 
 
 async def _prerequisite_edges(session: AsyncSession) -> list[PrerequisiteEdge]:
@@ -146,6 +151,7 @@ async def build_next_block(
             rating=problem.rating,
             minutes=estimate_minutes(problem.rating, score),
             predicted_score=score,
+            pattern_ids=tuple(tags),
         )
 
         # Due re-solves bypass the cooldown: that is the entire point of them.
@@ -162,23 +168,48 @@ async def build_next_block(
             interleaved.append(candidate)
 
     size = _block_size(goal.minutes_per_day)
-    block = assemble_block(
-        weakness=weakness,
-        interleaved=interleaved,
-        retention=retention,
-        budget_minutes=goal.minutes_per_day,
-        size=size,
-        mix=BlockMix(),
-        seed=seed,
-    )
+    placement = await placement_service.progress(session, user)
 
-    plan = await _persist(session, user, goal, block, focus, slugs, predictions)
+    if placement.complete:
+        block = assemble_block(
+            weakness=weakness,
+            interleaved=interleaved,
+            retention=retention,
+            budget_minutes=goal.minutes_per_day,
+            size=size,
+            mix=BlockMix(),
+            seed=seed,
+        )
+    else:
+        # Still placing: there is no established weakness to target, so the block
+        # is chosen for information instead — breadth across the foundations,
+        # aimed where the outcome is least certain (spec §9).
+        #
+        # Due re-solves still come first. Retention does not pause for placement.
+        observed = await placement_service.observed_pattern_ids(session, user)
+        chosen = select_placement_candidates(
+            weakness + interleaved,
+            observed_patterns=observed,
+            size=size,
+        )
+        block = assemble_block(
+            weakness=[],
+            interleaved=chosen,
+            retention=retention,
+            budget_minutes=goal.minutes_per_day,
+            size=size,
+            mix=BlockMix(),
+            seed=seed,
+        )
+
+    plan = await _persist(session, user, goal, block, focus, slugs, predictions, placement)
     locked = tuple(sorted(slugs[pid] for pid, state in unlocks.items() if not state.unlocked))
     return BlockPlan(
         plan=plan,
         block=block,
         focus_pattern_slugs=tuple(slugs[p] for p in focus),
         locked_pattern_slugs=locked,
+        placement=None if placement.complete else placement,
     )
 
 
@@ -211,6 +242,7 @@ async def _persist(
     focus: list[UUID],
     slugs: dict[UUID, str],
     predictions: dict[UUID, Prediction],
+    placement: PlacementProgress,
 ) -> Plan:
     current = (
         (
@@ -237,11 +269,15 @@ async def _persist(
         user_id=user.id,
         goal_id=goal.id,
         version=version,
-        status=PlanStatus.ACTIVE,
-        summary=_summary(focus_names, block),
+        # A plan built during placement is still provisional: it is chosen for
+        # information, not from an established picture of where you stand.
+        status=PlanStatus.PROVISIONAL if not placement.complete else PlanStatus.ACTIVE,
+        summary=_summary(focus_names, block, placement),
         generation_context={
-            "generator": "deterministic_block_assembler",
-            "generator_version": "phase1",
+            "generator": (
+                "placement_block" if not placement.complete else "deterministic_block_assembler"
+            ),
+            "generator_version": "phase3",
             "readiness_model": PRIMARY_MODEL,
             "focus_patterns": focus_names,
             "focus_readiness": {slugs[p]: round(predictions[p].score, 3) for p in focus},
@@ -249,6 +285,14 @@ async def _persist(
                 "weakness": tuning.BLOCK_MIX_WEAKNESS,
                 "interleaved": tuning.BLOCK_MIX_INTERLEAVED,
                 "retention": tuning.BLOCK_MIX_RETENTION,
+            },
+            "placement": {
+                "complete": placement.complete,
+                "attempts": placement.attempts,
+                "max_attempts": placement.max_attempts,
+                "calibrated": placement.calibrated,
+                "target": placement.target,
+                "reason": placement.reason,
             },
             "budget_minutes": block.budget_minutes,
             "shortfalls": list(block.shortfalls),
@@ -285,12 +329,21 @@ async def _persist(
     ).scalar_one()
 
 
-def _summary(focus: list[str], block: Block) -> str:
+def _summary(focus: list[str], block: Block, placement: PlacementProgress) -> str:
     if not block.items:
         return (
             "No block could be assembled — every candidate is either inside its "
             "cooldown window or behind a prerequisite that has not been demonstrated."
         )
+
+    if not placement.complete:
+        return (
+            f"{len(block.items)} problems, {block.total_minutes} minutes. Still "
+            f"working out where you stand ({placement.attempts} of up to "
+            f"{placement.max_attempts} problems), so these are chosen to tell us "
+            "the most rather than to target a weakness."
+        )
+
     focus_text = ", ".join(focus) if focus else "a broad mix"
     return (
         f"{len(block.items)} problems, {block.total_minutes} minutes, focused on "

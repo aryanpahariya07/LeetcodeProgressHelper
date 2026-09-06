@@ -13,6 +13,7 @@ import type {
   Health,
   Plan,
   PairingCode,
+  Placement,
   ReadinessReport,
   Retention,
   Today,
@@ -105,6 +106,7 @@ export const api = {
   attempts: (limit = 50) => request<Attempt[]>(`/attempts?limit=${limit}`),
 
   readiness: () => request<ReadinessReport>("/progress/readiness"),
+  placement: () => request<Placement>("/progress/placement"),
   retention: () => request<Retention>("/progress/retention"),
   unlocks: () => request<Unlock[]>("/progress/unlocks"),
   triggers: () => request<TriggerBatch[]>("/plan/triggers"),

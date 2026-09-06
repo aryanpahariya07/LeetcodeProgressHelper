@@ -2,12 +2,13 @@ import { Link } from "react-router-dom";
 
 import { Banner, Card, Empty, Loading } from "../components/ui";
 import { DIFFICULTY_CLASSES, formatMinutes, ratingBand } from "../lib/format";
-import { useMe, useToday } from "../lib/queries";
-import type { PlanItem } from "../lib/types";
+import { useMe, usePlacement, useToday } from "../lib/queries";
+import type { Placement, PlanItem } from "../lib/types";
 
 export function TodayPage() {
   const me = useMe();
   const today = useToday();
+  const placement = usePlacement();
 
   if (me.isLoading || today.isLoading) return <Loading label="Loading your plan…" />;
 
@@ -41,11 +42,14 @@ export function TodayPage() {
         </p>
       </header>
 
-      {data.is_provisional && (
+      {placement.data && !placement.data.complete && (
+        <PlacementBanner placement={placement.data} />
+      )}
+
+      {data.is_provisional && placement.data?.complete && (
         <Banner tone="info">
-          <strong>This plan is provisional.</strong> It comes from a starting curriculum for
-          your stated level — not from evidence about how you actually solve. It will be
-          replaced once placement runs (Phase 3).
+          <strong>This plan is provisional.</strong> Build a new block to switch to one
+          assembled from your recorded attempts.
         </Banner>
       )}
 
@@ -99,5 +103,30 @@ function ProblemRow({ item }: { item: PlanItem }) {
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * Placement is the first practice block, not a gate (spec §9). The wording has
+ * to make that obvious — nothing here is blocked on finishing.
+ */
+function PlacementBanner({ placement }: { placement: Placement }) {
+  const done = placement.attempts;
+  const total = placement.max_attempts;
+  const pct = Math.min(100, Math.round((done / total) * 100));
+
+  return (
+    <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+      <p>
+        <strong>Working out where you stand.</strong> These problems are picked to tell the
+        system the most about you, not to target a weakness it hasn&apos;t found yet.
+      </p>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sky-200">
+        <div className="h-full rounded-full bg-sky-600" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-1 text-xs text-sky-800">
+        {done} of up to {total} problems · {placement.reason}
+      </p>
+    </div>
   );
 }
