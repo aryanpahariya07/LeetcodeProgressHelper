@@ -102,7 +102,8 @@ apps/api/src/dsa_coach/
   coach/           the judgment layer — the only place the provider is imported
     runtime.py       CoachRuntime protocol, context and outcome types
     stub.py          deterministic coach: test double AND production fallback
-    openai_runtime.py  OpenAI Agents SDK implementation
+    codex_runtime.py   Codex SDK implementation (the default)
+    openai_runtime.py  OpenAI Agents SDK implementation (alternative)
 
   services/        database glue around the mechanism layer
     coach.py         run, validate, record, hand to the scheduler
@@ -308,18 +309,30 @@ is no way to supply one.
 coach/
   runtime.py          the CoachRuntime protocol, context and outcome types
   stub.py             deterministic coach — test double AND production fallback
-  openai_runtime.py   the only file that imports the provider
+  codex_runtime.py    the default provider — Codex SDK, via AsyncCodex
+  openai_runtime.py   the alternative provider
 mechanism/
   prescription.py     validate + clamp — pure, and the reason invariant 3 holds
 services/coach.py     run, validate, record, hand to the scheduler
 ```
 
-### Running without a key is a supported configuration
+### Choosing a coach
 
-Leave `OPENAI_API_KEY` unset and `build_runtime` returns the deterministic coach.
-There is no "AI disabled" branch anywhere else in the codebase, because there does
-not need to be one — the absence of a key simply selects a coach that reasons
-arithmetically instead of statistically, and everything downstream is unchanged.
+`coach_runtime` selects one:
+
+| Value | Runtime | Needs |
+| --- | --- | --- |
+| `codex` (default) | Codex SDK via `AsyncCodex` | `openai-codex` installed and `codex login` done once — a ChatGPT account, no API key |
+| `openai` | OpenAI Agents SDK | `OPENAI_API_KEY` |
+| `stub` | deterministic | nothing |
+
+### Running without a provider is a supported configuration
+
+Set `coach_runtime=stub`, or simply let a configured provider be unavailable, and
+`build_runtime` returns the deterministic coach. There is no "AI disabled" branch
+anywhere else in the codebase, because there does not need to be one — the absence
+of a provider simply selects a coach that reasons arithmetically instead of
+statistically, and everything downstream is unchanged.
 
 That is invariant 4, and `tests/test_coach.py::TestInvariantFour` is what keeps it
 true.
@@ -424,3 +437,33 @@ click questionnaire has no room to ask for (spec §3.5) — and to flag the one 
 worth flagging: an accepted solution that would not have survived a bigger input.
 
 It is never used to score the user.
+
+## One process, one port
+
+The API serves the built web app, so everyday use needs a single command:
+
+```bash
+cd apps/web && npm run build     # -> apps/web/dist
+cd ../api  && uv run uvicorn dsa_coach.main:app
+```
+
+Then everything is on <http://127.0.0.1:8000> — the dashboard at `/`, the API
+under `/api/v1`, OpenAI docs at `/docs`. No Vite proxy, no second terminal, one
+bookmarkable URL.
+
+**Rebuild the frontend after changing it.** `dist/` is a build artifact and is
+gitignored; the API serves whatever is there, so a stale build serves stale UI.
+
+For frontend work, `npm run dev` on :5173 still proxies to :8000 and gives you
+hot reload — use that while editing, and the built version for daily practice.
+
+### Two details worth knowing
+
+The SPA fallback returns `index.html` for any non-API path, because `/progress`
+is a real route to the browser and a missing file to the server. But an
+unmatched `/api/...` deliberately returns a JSON 404 rather than the shell —
+handing HTML with a 200 to a fetch that expected JSON turns a plain 404 into a
+baffling parse error at the call site.
+
+If `apps/web/dist` does not exist the API runs exactly as before, serving only
+the API. A fresh clone works without a frontend build.

@@ -390,7 +390,7 @@ class TestEndpoint:
         result = (await onboarded.post("/coach/prescribe")).json()
 
         assert "used_fallback" in result
-        assert result["runtime"] == "deterministic-stub", "no key configured in tests"
+        assert result["runtime"] == "deterministic-stub", "the suite pins coach_runtime=stub"
 
     async def test_runs_are_listed_for_audit(self, onboarded: AsyncClient) -> None:
         await onboarded.post("/coach/prescribe")
@@ -415,13 +415,27 @@ class TestEndpoint:
 class TestInvariantFour:
     """The product must remain fully usable with the AI provider unavailable."""
 
-    async def test_no_api_key_selects_the_deterministic_coach(self) -> None:
+    async def test_an_unconfigured_provider_selects_the_deterministic_coach(self) -> None:
         from dsa_coach.coach import build_runtime
         from dsa_coach.config import Settings
 
-        runtime = build_runtime(Settings(openai_api_key=None))
+        # The `openai` runtime without its key, and an unrecognized value, both
+        # have to degrade to the stub rather than raise. That fallback is the
+        # entire mechanism by which invariant 4 holds.
+        assert isinstance(
+            build_runtime(Settings(coach_runtime="openai", openai_api_key=None)),
+            StubCoachRuntime,
+        )
+        assert isinstance(build_runtime(Settings(coach_runtime="stub")), StubCoachRuntime)
+        assert isinstance(build_runtime(Settings(coach_runtime="nonsense")), StubCoachRuntime)
 
-        assert isinstance(runtime, StubCoachRuntime)
+    async def test_codex_is_the_default_runtime(self) -> None:
+        from dsa_coach.coach import build_runtime
+        from dsa_coach.config import Settings
+
+        # Selection only. Nothing here talks to Codex; the runtime's own
+        # behaviour is covered by tests/test_codex_runtime.py.
+        assert build_runtime(Settings()).name == "codex"
 
     async def test_everything_still_works_with_the_coach_removed(
         self, onboarded: AsyncClient, session: AsyncSession

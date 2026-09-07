@@ -14,7 +14,12 @@ practice block, and teaches.
 ## Two different AIs — do not confuse them
 
 - **Claude Code (you)** is the *development* agent. You write this project.
-- **OpenAI Agents SDK** is the *runtime* coach inside the deployed application.
+- **The Codex SDK** is the *runtime* coach inside the application.
+
+Both are coding agents driven from a terminal, so the confusion is easy and costly.
+The runtime coach is deliberately stripped of every agentic capability — read-only,
+approves nothing, no tools, empty working directory — because here it is only an
+inference endpoint that prescribes block *shape* (spec §2).
 
 When the spec says "the agent," it means the runtime coach, not you.
 
@@ -97,8 +102,8 @@ no system Python required), Node 24 / npm 11.
 ```bash
 # --- api (from apps/api) ---
 uv sync                                          # install deps
-uv run uvicorn dsa_coach.main:app --reload       # run api      :8000
-uv run pytest                                    # test         (390 tests)
+uv run uvicorn dsa_coach.main:app --reload       # api + web    :8000
+uv run pytest                                    # test         (423 tests)
 uv run ruff check .                              # lint
 uv run ruff format .                             # format
 uv run mypy                                      # typecheck    (strict)
@@ -106,20 +111,27 @@ uv run alembic upgrade head                      # migrate
 uv run alembic check                             # schema drift (invariant 11)
 uv run alembic revision --autogenerate -m "..."  # new migration
 uv run dsa-coach seed                            # seed catalogue (idempotent)
+# serving the web app from :8000 needs `npm run build` in apps/web first
 uv run dsa-coach import-catalogue --file F --rating-source S
+
+# --- runtime coach ---
+# The default runtime is Codex, which authenticates with a ChatGPT account.
+# Once per machine; without it the coach falls back to the deterministic
+# scheduler and the product still works (invariant 4).
+codex login
 
 # --- web (from apps/web) ---
 npm install
-npm run dev                                      # run web      :5173
+npm run dev                                      # frontend dev :5173 (proxies to :8000)
+npm run build                                    # -> dist/, served by the API
 npm test                                         # test         (24 tests)
 npm run lint
 npm run typecheck
-npm run build
 
 # --- extension (from apps/extension) ---
 npm install
 npm run dev                                      # load .output/chrome-mv3 unpacked
-npm test                                         # test         (53 tests)
+npm test                                         # test         (77 tests)
 npm run lint
 npm run typecheck
 npm run build

@@ -48,23 +48,70 @@ traversal, candidate filtering, block assembly, material-change detection. Pure,
 versioned, unit-tested functions over the Evidence layer. **No LLM call is permitted
 here.**
 
-**Judgment (AI).** Diagnosis, teaching, block-shape prescription, conversation. Reads
-the lower layers through narrow function tools. Writes only *specifications* and
-*prose* — never facts.
+**Judgment (AI).** Diagnosis, teaching, block-shape prescription, conversation. Sees
+the lower layers only as a bounded context the server assembles for it. Writes only
+*specifications* and *prose* — never facts.
 
 > **AI writes the prescription. Deterministic code fills it.**
 
 ### Runtime provider
 
-The deployed coach uses the **OpenAI Agents SDK for Python** — Agents SDK sessions,
-function tools, structured Pydantic outputs, and built-in tracing (disabled in tests).
+The coach runs on the **Codex SDK for Python** (`openai-codex`), driving the bundled
+local Codex app-server through `AsyncCodex`. It authenticates with a ChatGPT account
+rather than an API key, which is what makes it appropriate for a local, single-user
+install: no metered key to manage, and no second billing relationship.
 
-Orchestration sits behind a `CoachRuntime` interface so a provider swap is contained,
-but **only the OpenAI implementation is built in the MVP.** Do not write a second
-adapter speculatively.
+Selection is by the `coach_runtime` setting — `codex` (default), `openai`, or `stub` —
+behind a `CoachRuntime` interface. The interface exists because it is also the
+mechanism for invariant 4: when the configured provider is unusable, `build_runtime()`
+returns the deterministic stub and everything downstream is unchanged. There is no
+"AI disabled" branch anywhere else in the codebase.
 
-`OPENAI_API_KEY` exists only on the server. Never in the web bundle, never in the
-extension.
+**Codex never writes to the database.** It receives a bounded, sanitized
+`CoachContext` and returns a proposed block *shape*. The flow is:
+
+```
+FastAPI deterministic services
+  → construct a bounded CoachContext
+  → CodexCoachRuntime (AsyncCodex)
+  → receive a prescription
+  → validate with Pydantic
+  → deterministic mechanism applies it
+```
+
+It has no database handle, no function tools, and structurally no way to name a
+problem (invariant 3) — `Prescription` has no field for one.
+
+#### Containment
+
+Codex is a coding agent; here it must be only an inference endpoint. Every turn is
+started with its agentic capabilities switched off:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `sandbox` | `read_only` | No writes to anything. |
+| `approval_mode` | `deny_all` | No command it proposes is ever approved. |
+| `ephemeral` | `True` | No thread history persists between calls. |
+| `cwd` | empty temp directory | Even a read-only agent sees nothing of the machine. |
+
+These are a security boundary, so they are asserted in tests rather than trusted to
+stay put (`tests/test_codex_runtime.py`).
+
+Provider error messages can echo the prompt back, and the prompt is the user's
+practice history — only the exception *type* is recorded in `AgentRun.output_summary`.
+
+#### Licensing scope
+
+> This application is currently **local and single-user**, run under the developer's
+> own ChatGPT plan. It is not designed as a public SaaS on a developer subscription.
+>
+> **Deploying or distributing this application would require a separate
+> authentication, billing and terms review.** A ChatGPT subscription is not production
+> API capacity for a service with users. Treat this as a release blocker, not a
+> footnote.
+
+`OPENAI_API_KEY` — used only by the alternative `openai` runtime — exists only on the
+server. Never in the web bundle, never in the extension.
 
 ---
 
@@ -469,8 +516,14 @@ Given a validated prescription (§7.2):
 
 ## 7. Judgment: the coach agent
 
-One agent. OpenAI Agents SDK. Structured Pydantic outputs. Narrow function tools. No
-unrestricted SQL. Tracing enabled outside tests.
+One agent. Codex SDK (§2). Structured JSON output, validated into Pydantic before it
+goes anywhere.
+
+**No function tools.** The coach does not fetch its own evidence: the server assembles
+a bounded `CoachContext` and passes it in the prompt. So there is no unrestricted SQL,
+no tool surface to secure, and no path by which the model reaches the database at all.
+The tools listed in §7.1 describe the *read* shape the context is assembled from, not
+callable tools exposed to the model.
 
 ### 7.1 Tools
 
@@ -740,7 +793,7 @@ Form, Zod, Recharts, Vitest.
 **Extension:** WXT, React, TypeScript, Manifest V3, Vitest for business logic (queue,
 active-time accounting, dedup) with the DOM adapter tested against fixture HTML.
 
-**Runtime AI:** OpenAI Agents SDK for Python (§2).
+**Runtime AI:** Codex SDK for Python (`openai-codex`), via `AsyncCodex` (§2).
 
 **Deferred until justified:** Redis, durable worker queues, Docker Compose,
 multi-tenant auth, a `packages/` layer, multi-agent orchestration.
@@ -849,8 +902,8 @@ RD-based early stopping, "Calibrating" UI states, optional profile-seeded priors
 blocking test, and RD demonstrably falls with evidence.
 
 ### Phase 4 — AI judgment layer
-`CoachRuntime` over the OpenAI Agents SDK, narrow function tools, structured
-prescriptions, prescription validation and clamping, three-attempt evaluation with
+`CoachRuntime` over the Codex SDK, a server-assembled bounded context (no function
+tools), structured prescriptions, prescription validation and clamping, three-attempt evaluation with
 material-change gating, `no_change` recording, plan versioning with optimistic
 concurrency, `agent_runs` audit, deterministic fallback, agent evaluations.
 
@@ -911,8 +964,9 @@ working, regardless of how green the test suite is.
    telemetry blind spot (independent / hint / editorial / failed).
 3. **Attempts are amendable, and the extension re-prompts after editorial access** —
    because the editorial is usually read *after* the submission event fires.
-4. **Runtime provider: OpenAI Agents SDK**, behind a `CoachRuntime` interface with one
-   implementation. Claude Code is the development agent; the two are never conflated.
+4. **Runtime provider: Codex SDK**, behind a `CoachRuntime` interface. Selected by
+   `coach_runtime`; the deterministic stub is the fallback that makes invariant 4
+   hold. Local single-user scope only — deployment needs a licensing review (§2). Claude Code is the development agent; the two are never conflated.
 5. **Readiness sits behind a `ReadinessModel` interface with two implementations.**
    A Beta-Binomial baseline is primary; Glicko-2 is experimental and must beat it on
    real data (§6.3) or be deleted. v2's claim that Elo yields a calibrated probability

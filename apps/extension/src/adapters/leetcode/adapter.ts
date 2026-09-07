@@ -67,11 +67,50 @@ const OUTCOME_TEXT: Array<[string, SubmissionOutcome]> = [
   ["accepted", "accepted"],
 ];
 
+/**
+ * Where a verdict may appear. Two surfaces, not one:
+ *
+ * - `submission-result` — the verdict from **Submit**, judged against the full
+ *   test suite. Confirmed present on a live page.
+ * - `console-result` — the verdict from **Run**, judged against the sample
+ *   cases only. A different element, and worth catching: how many times you ran
+ *   before submitting is real evidence about how you work.
+ *
+ * Nothing speculative belongs in this list. A selector nobody has seen is not a
+ * safety net, it is noise that outlives the reason it was added.
+ */
 const RESULT_SELECTORS = [
   '[data-e2e-locator="submission-result"]',
   '[data-e2e-locator="console-result"]',
 ];
 
+/**
+ * The console panel, used as the *scope* for a text scan.
+ *
+ * Scanning the whole document for a verdict is not safe: a problem page shows
+ * "Accepted 2,554,913/3.9M  Acceptance Rate 66.1%" in its statistics before you
+ * submit anything, and a body-wide scan reads that as a passing submission.
+ * That would fabricate an attempt nobody made.
+ *
+ * The console is anchored by the run/submit buttons, which are stable locators,
+ * so the scan is confined to the region a verdict can legitimately appear in.
+ */
+const CONSOLE_ANCHORS = [
+  '[data-e2e-locator="console-submit-button"]',
+  '[data-e2e-locator="console-run-button"]',
+];
+
+/**
+ * Text that means "no verdict yet", so a stale or idle console is not read as
+ * one. LeetCode shows these in the same region a verdict later occupies.
+ */
+const CONSOLE_IDLE = /you must run your code first|run your code|testcase|test case/i;
+
+/**
+ * The language picker has no locator of its own on observed pages — it is a
+ * plain button whose text is the language ("C++"). Anchoring on the console and
+ * matching known language names is the most stable read available.
+ */
 const LANGUAGE_SELECTORS = [
   "[data-e2e-locator='lang-select'] button",
   "[data-e2e-locator='lang-select']",
@@ -124,8 +163,21 @@ export class LeetCodeAdapter implements ProblemPageAdapter {
       if (matched) return observed(matched, "high");
     }
 
-    // Nothing anchored matched. Rather than guess from arbitrary page text,
-    // report that it is unknown (invariant 6).
+    // No anchored picker. Fall back to buttons whose entire label is a language
+    // name — "C++", "Python3". Requiring the *whole* label to match keeps this
+    // from picking up prose that merely mentions a language.
+    for (const button of root.querySelectorAll("button")) {
+      const label = (button.textContent ?? "").trim();
+      if (!label || label.length > 16) continue;
+      const matched = matchLanguage(label);
+      if (matched && matched.length >= label.length - 1) {
+        // Medium: inferred from a label rather than an identified control.
+        return observed(matched, "medium");
+      }
+    }
+
+    // Rather than guess from arbitrary page text, report it as unknown
+    // (invariant 6).
     return { value: null, confidence: "low" };
   }
 
@@ -136,28 +188,68 @@ export class LeetCodeAdapter implements ProblemPageAdapter {
       if (matched) return observed(matched, "high");
     }
 
-    // Fall back to scanning for a verdict anywhere on the page. This can pick up
-    // a stale panel from a previous submission, so it is explicitly medium.
-    const matched = matchOutcome(textOf(root.querySelector("body")));
-    if (matched) return observed(matched, "medium");
+    // Scan the console panel only — never the whole document. A problem page
+    // shows "Accepted 2,554,913/3.9M" in its statistics before any submission,
+    // and a body-wide scan reads that as a passing attempt, inventing one
+    // nobody made (invariant 5).
+    const panel = consolePanel(root);
+    if (panel) {
+      const text = (panel.textContent ?? "").toLowerCase();
+      if (!CONSOLE_IDLE.test(text)) {
+        const matched = matchOutcome(text);
+        // Medium: the region is right, but the exact element is not identified,
+        // so a verdict left over from an earlier submission is possible.
+        if (matched) return observed(matched, "medium");
+      }
+    }
 
     return { value: null, confidence: "low" };
   }
 
   checkHealth(root: ParentNode): AdapterHealth {
+    // Health is judged on anchors that must exist on *any* loaded problem page.
+    //
+    // The result panel is deliberately not one of them: before you submit
+    // anything there is no verdict to find, and reporting that as breakage
+    // conflates "the selectors are wrong" with "you have not submitted yet" —
+    // which is precisely the false alarm this check produced on first contact
+    // with a real page.
     const missing: string[] = [];
-    if (!RESULT_SELECTORS.some((s) => root.querySelector(s))) {
-      missing.push("submission-result");
+
+    if (!consolePanel(root)) {
+      missing.push("console (run/submit buttons)");
     }
-    if (!LANGUAGE_SELECTORS.some((s) => root.querySelector(s))) {
-      missing.push("lang-select");
+    if (this.language(root).value === null) {
+      missing.push("language picker");
     }
+
     return { healthy: missing.length === 0, missing };
   }
 }
 
 function textOf(node: Element | null): string {
   return (node?.textContent ?? "").toLowerCase();
+}
+
+/**
+ * The console region, found by walking up from the run/submit buttons.
+ *
+ * Those buttons carry stable `data-e2e-locator` attributes, so they are a
+ * reliable way to locate a region whose own markup is not. Four levels up is
+ * far enough to include the result panel and near enough to exclude the problem
+ * statement and its statistics.
+ */
+export function consolePanel(root: ParentNode): Element | null {
+  for (const selector of CONSOLE_ANCHORS) {
+    const button = root.querySelector(selector);
+    if (!button) continue;
+    let node: Element | null = button;
+    for (let depth = 0; depth < 4 && node?.parentElement; depth += 1) {
+      node = node.parentElement;
+    }
+    if (node) return node;
+  }
+  return null;
 }
 
 export function matchOutcome(text: string): SubmissionOutcome | null {

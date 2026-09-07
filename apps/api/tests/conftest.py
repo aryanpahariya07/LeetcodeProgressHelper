@@ -21,6 +21,15 @@ from dsa_coach.main import create_app
 async def db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[Path, None]:
     path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{path.as_posix()}")
+    # The suite must never reach a real provider: it would be slow,
+    # non-deterministic, and would spend the developer's ChatGPT quota on every
+    # run. This used to hold only because no API key was configured in CI —
+    # which stopped being true the moment the default runtime became one that
+    # authenticates without a key. Pin it explicitly instead.
+    #
+    # Tests that need coach behaviour inject a `ScriptedRuntime`; the one that
+    # needs the real thing is a manual check, not part of this suite.
+    monkeypatch.setenv("COACH_RUNTIME", "stub")
     get_settings.cache_clear()
     reset_engine_state()
 

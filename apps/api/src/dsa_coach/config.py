@@ -30,8 +30,18 @@ class Settings(BaseSettings):
     max_batch_size: int = 100
     max_request_bytes: int = 1_048_576
 
-    # --- runtime coach (Phase 4). Absent key => deterministic coach, and the
-    # product stays fully usable (invariant 4).
+    # --- runtime coach (spec §2).
+    #
+    # `codex` authenticates with a ChatGPT account rather than an API key, which
+    # is why it is the default for a local single-user install. Deploying this
+    # would require a separate auth, billing and terms review.
+    #
+    # Whatever is selected, an unavailable coach falls back to the deterministic
+    # runtime and the product stays fully usable (invariant 4).
+    coach_runtime: str = "codex"
+    #: Optional model override. Codex picks a sensible default when unset.
+    coach_model: str | None = None
+
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
     agent_tracing_enabled: bool = False

@@ -13,6 +13,10 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "greenlet>=3.1.0",
     "fsrs>=6.3.2",
+    # The default runtime coach (spec §2). Authenticates with a ChatGPT account,
+    # so there is no API key to configure for a local single-user install.
+    "openai-codex>=0.147.0",
+    # The alternative runtime, selected by `coach_runtime=openai`.
     "openai-agents>=0.22.0",
 ]
 
