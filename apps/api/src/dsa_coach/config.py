@@ -46,7 +46,23 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     agent_tracing_enabled: bool = False
 
+    # --- logging
     log_level: str = "INFO"
+
+    #: Optional file to mirror logs into. Console output continues either way.
+    log_file: str | None = None
+
+    #: Log the body of every mutating request.
+    #:
+    #: Off by default for a practical reason rather than a policy one: with code
+    #: capture consented, a body carries a full source snapshot, and writing one
+    #: per submission buries the lines worth reading. Turn it on while debugging
+    #: the extension, when seeing exactly what arrived is the whole point.
+    log_request_bodies: bool = False
+
+    #: Truncation for a logged body, so one large snapshot cannot swamp the file.
+    #: Raise it if a payload you need is being cut off.
+    log_body_max_chars: int = 4000
 
     @property
     def is_sqlite(self) -> bool:

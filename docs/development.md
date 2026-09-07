@@ -316,6 +316,40 @@ mechanism/
 services/coach.py     run, validate, record, hand to the scheduler
 ```
 
+### Logs
+
+Uvicorn prints one line per request on its own. The application's own log lines —
+including the coach falling back to the deterministic scheduler, which is otherwise
+invisible because the product carries on regardless — are configured by
+`configure_logging` from these settings:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Level for the `dsa_coach` logger tree |
+| `LOG_FILE` | unset | Mirror logs into a file (rotating, 10 MB × 3). Console output continues either way |
+| `LOG_REQUEST_BODIES` | `false` | Log the body of every POST/PATCH/PUT/DELETE |
+| `LOG_BODY_MAX_CHARS` | `4000` | Truncate a logged body at this length |
+
+`LOG_REQUEST_BODIES` is the one to reach for when debugging the extension — it shows
+what actually arrived, rather than only that something did:
+
+```
+POST /api/v1/attempts <- {"event_uuid":"9999...","problem_slug":"two-sum",...}
+POST /api/v1/attempts -> 201
+```
+
+It is off by default for a practical reason rather than a policy one: with code
+capture consented a body carries a full source snapshot, and one per submission
+buries the lines worth reading.
+
+Reads are never logged — the dashboard polls, and those lines would drown
+everything else.
+
+Note that payloads are **already** persisted regardless of this setting:
+`attempt_events` stores every inbound event before validation (invariant 7), with its
+`processing_status` and rejection `error`. An event can be stored *and* rejected, and
+that table is where you find out why.
+
 ### Choosing a coach
 
 `coach_runtime` selects one:

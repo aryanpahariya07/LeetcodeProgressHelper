@@ -13,7 +13,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from dsa_coach import __version__
-from dsa_coach.config import get_settings
+from dsa_coach.config import Settings, get_settings
+from dsa_coach.logging_setup import configure_logging
 from dsa_coach.routers import (
     attempts,
     coach,
@@ -36,6 +37,7 @@ WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings)
 
     app = FastAPI(
         title="DSA Coach API",
@@ -64,6 +66,9 @@ def create_app() -> FastAPI:
             )
         return await call_next(request)
 
+    if settings.log_request_bodies:
+        _install_body_logging(app, settings)
+
     v1 = APIRouter(prefix=API_PREFIX)
     v1.include_router(health.router)
     v1.include_router(onboarding.router)
@@ -78,6 +83,48 @@ def create_app() -> FastAPI:
     _mount_web_app(app)
 
     return app
+
+
+def _install_body_logging(app: FastAPI, settings: Settings) -> None:
+    """Log the body of every mutating request (`log_request_bodies`).
+
+    For working out what the extension actually sent, as opposed to what it was
+    supposed to send. Uvicorn's access log gives the method, path and status;
+    this fills in the part that decides whether an event was usable.
+
+    Only mutating methods are logged — a GET body is almost always absent, and
+    logging one per dashboard poll would drown the interesting lines.
+    """
+    body_logger = logging.getLogger("dsa_coach.request")
+    limit = settings.log_body_max_chars
+
+    @app.middleware("http")
+    async def log_bodies(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method not in {"POST", "PATCH", "PUT", "DELETE"}:
+            return await call_next(request)
+
+        raw = await request.body()
+
+        # Reading the stream consumes it, so the route handler downstream would
+        # otherwise receive an empty body. Put it back.
+        async def receive() -> dict[str, object]:
+            return {"type": "http.request", "body": raw, "more_body": False}
+
+        # Starlette has no public API for this; assigning `_receive` is how it is done.
+        request._receive = receive
+
+        if raw:
+            text = raw.decode("utf-8", errors="replace")
+            if len(text) > limit:
+                text = f"{text[:limit]}... [{len(text) - limit} more chars]"
+        else:
+            text = "<empty>"
+
+        body_logger.info("%s %s <- %s", request.method, request.url.path, text)
+
+        response = await call_next(request)
+        body_logger.info("%s %s -> %s", request.method, request.url.path, response.status_code)
+        return response
 
 
 def _mount_web_app(app: FastAPI, dist: Path = WEB_DIST) -> None:
