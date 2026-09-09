@@ -16,6 +16,10 @@
 
 import { leetcodeAdapter } from "../src/adapters/leetcode/adapter";
 import {
+  NETWORK_MESSAGE,
+  type ObservedSubmission,
+} from "../src/adapters/leetcode/network";
+import {
   buildAttemptEvent,
   emptySession,
   reduce,
@@ -23,7 +27,7 @@ import {
   type SessionState,
 } from "../src/lib/session";
 import { askQuestionnaire } from "../src/ui/questionnaire";
-import type { SubmissionOutcome } from "../src/lib/types";
+import { observed, type SubmissionOutcome } from "../src/lib/types";
 
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
@@ -73,6 +77,36 @@ function start(): void {
   // bfcache-restored pages, where `beforeunload` does not.
   window.addEventListener("pagehide", () => {
     if (state.phase === "working" && state.slug) dispatch({ type: "leave", at: Date.now() });
+  });
+
+  // --- Run and Submit, observed from LeetCode's own requests.
+  //
+  // The MAIN-world script (`leetcode-network.content.ts`) posts here whenever a
+  // submission request goes out. This is the only reliable source of two things
+  // the DOM could not give:
+  //
+  //   - `run_count`, which was structurally zero: the reducer has always had a
+  //     `run` case and nothing ever dispatched one.
+  //   - the language, previously guessed from a button label, which is why
+  //     `capture_confidence` was capped at medium on every attempt.
+  //
+  // A submit is *not* dispatched here. The request only says one was sent; the
+  // verdict comes later, and the DOM observer below remains what reports it.
+  // Dispatching on the request would record an outcome before the judge had
+  // returned one (invariant 5).
+  window.addEventListener("message", (message: MessageEvent) => {
+    if (message.source !== window) return;
+    const data = message.data as ObservedSubmission | undefined;
+    if (data?.source !== NETWORK_MESSAGE) return;
+    if (state.phase !== "working" || state.slug !== data.slug) return;
+
+    if (data.lang) {
+      // Authoritative: LeetCode is telling us what it is about to compile.
+      dispatch({ type: "language", language: observed(data.lang, "high") });
+    }
+    if (data.kind === "run") {
+      dispatch({ type: "run", at: data.at });
+    }
   });
 
   // --- Interaction and visibility, feeding the active-time accounting.

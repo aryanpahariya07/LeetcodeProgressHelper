@@ -72,6 +72,7 @@ export type SessionEvent =
   | { type: "hidden"; at: number }
   | { type: "visible"; at: number }
   | { type: "run"; at: number }
+  | { type: "language"; language: Observed<string> }
   | { type: "submit"; observation: SubmissionObservation }
   | { type: "answer"; answer: QuestionnaireAnswer }
   | { type: "dismiss" }
@@ -118,6 +119,21 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         runCount: state.runCount + 1,
         timeline: [...state.timeline, { kind: "input", at: event.at }],
       };
+    }
+
+    case "language": {
+      // A better read than the one taken when the problem was opened — the
+      // adapter can only infer the language from a button label, while
+      // LeetCode's own request states it. Only ever upgrades: a low-confidence
+      // observation must not overwrite a high-confidence one.
+      if (state.phase === "idle" || state.phase === "complete" || state.phase === "left") {
+        return state;
+      }
+      if (!event.language.value) return state;
+      if (state.language.confidence === "high" && event.language.confidence !== "high") {
+        return state;
+      }
+      return { ...state, language: event.language };
     }
 
     case "submit": {

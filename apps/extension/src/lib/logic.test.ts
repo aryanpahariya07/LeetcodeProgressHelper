@@ -501,3 +501,73 @@ describe("leetcode adapter", () => {
     expect(matchLanguage("")).toBeNull();
   });
 });
+
+describe("language, upgraded from the network observation", () => {
+  it("replaces a guessed language with the one LeetCode states", () => {
+    // The adapter can only infer the language from a button label. LeetCode's
+    // own request states it outright, which is why this event exists.
+    const state = run([
+      { type: "open", slug: "two-sum", language: observed("python3", "medium"), at: T0 },
+      { type: "language", language: observed("java", "high") },
+    ]);
+
+    expect(state.language.value).toBe("java");
+    expect(state.language.confidence).toBe("high");
+  });
+
+  it("does not let a weaker read overwrite a stronger one", () => {
+    const state = run([
+      { type: "open", slug: "two-sum", language: observed("java", "high"), at: T0 },
+      { type: "language", language: observed("python3", "low") },
+    ]);
+
+    expect(state.language.value).toBe("java");
+  });
+
+  it("ignores an empty observation", () => {
+    // Invariant 6: unknown stays unknown rather than blanking what is known.
+    const state = run([
+      openEvent(),
+      { type: "language", language: { value: null, confidence: "low" } },
+    ]);
+
+    expect(state.language.value).toBe("python3");
+  });
+
+  it("is ignored once the session is finished", () => {
+    const state = run([
+      openEvent(),
+      { type: "leave", at: T0 + minute },
+      { type: "language", language: observed("java", "high") },
+    ]);
+
+    expect(state.language.value).toBe("python3");
+  });
+});
+
+describe("run counting", () => {
+  it("counts each observed run", () => {
+    // `run_count` was structurally zero before the network observer existed:
+    // the reducer had always handled this event and nothing ever dispatched it.
+    const state = run([
+      openEvent(),
+      { type: "run", at: T0 + minute },
+      { type: "run", at: T0 + 2 * minute },
+      { type: "run", at: T0 + 3 * minute },
+    ]);
+
+    expect(state.runCount).toBe(3);
+  });
+
+  it("reaches the attempt event", () => {
+    const state = run([
+      openEvent(),
+      { type: "run", at: T0 + minute },
+      { type: "run", at: T0 + 2 * minute },
+      submitEvent(T0 + 3 * minute),
+      { type: "answer", answer: { resolution: "independent" } },
+    ]);
+
+    expect(buildAttemptEvent(state, { eventUuid: "x" })?.run_count).toBe(2);
+  });
+});
