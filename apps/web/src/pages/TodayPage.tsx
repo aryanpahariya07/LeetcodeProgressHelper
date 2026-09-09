@@ -15,12 +15,12 @@ export function TodayPage() {
   if (me.isError && me.error.status === 409) {
     return (
       <Card title="Welcome">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-subtle">
           You haven&apos;t set up a plan yet.
         </p>
         <Link
           to="/onboarding"
-          className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          className="mt-4 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-hover"
         >
           Get started
         </Link>
@@ -36,8 +36,8 @@ export function TodayPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Today</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-2xl font-semibold text-ink">Today</h1>
+        <p className="mt-1 text-sm text-ink-subtle">
           {data.items.length} problems · {formatMinutes(data.total_target_minutes)}
         </p>
       </header>
@@ -66,13 +66,13 @@ export function TodayPage() {
       <CoachCard />
 
       <Card title="Logging attempts">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-subtle">
           The browser extension records attempts automatically. Logging by hand stays
           available permanently as the fallback.
         </p>
         <Link
           to="/log"
-          className="mt-4 inline-block rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          className="mt-4 inline-block rounded-md border border-line-strong px-4 py-2 text-sm font-medium text-ink-muted hover:bg-inset"
         >
           Log an attempt
         </Link>
@@ -86,17 +86,17 @@ function ProblemRow({ item }: { item: PlanItem }) {
   if (!problem) return null;
 
   return (
-    <li className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4">
+    <li className="flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4">
       <div className="min-w-0">
         <a
           href={problem.url}
           target="_blank"
           rel="noreferrer"
-          className="font-medium text-slate-900 underline-offset-2 hover:underline"
+          className="font-medium text-ink underline-offset-2 hover:underline"
         >
           {problem.title}
         </a>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-faint">
           <span className={`rounded px-2 py-0.5 font-medium ${DIFFICULTY_CLASSES[problem.difficulty]}`}>
             {problem.difficulty}
           </span>
@@ -118,15 +118,15 @@ function PlacementBanner({ placement }: { placement: Placement }) {
   const pct = Math.min(100, Math.round((done / total) * 100));
 
   return (
-    <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+    <div className="rounded-md border border-info-line bg-info-bg px-4 py-3 text-sm text-info-ink">
       <p>
         <strong>Working out where you stand.</strong> These problems are picked to tell the
         system the most about you, not to target a weakness it hasn&apos;t found yet.
       </p>
-      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-sky-200">
-        <div className="h-full rounded-full bg-sky-600" style={{ width: `${pct}%` }} />
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-inset">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-1 text-xs text-sky-800">
+      <p className="mt-1 text-xs text-info-ink/80">
         {done} of up to {total} problems · {placement.reason}
       </p>
     </div>
@@ -166,19 +166,19 @@ function CoachCard() {
           )}
 
           {result.diagnosis && (
-            <p className="text-sm text-slate-800">
+            <p className="text-sm text-ink-muted">
               <strong>Diagnosis.</strong> {result.diagnosis}
             </p>
           )}
 
-          <p className="text-sm text-slate-700">{result.message}</p>
+          <p className="text-sm text-ink-subtle">{result.message}</p>
 
           {result.violations.length > 0 && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-              <p className="text-xs font-medium text-amber-900">
+            <div className="rounded-md border border-warn-line bg-warn-bg px-3 py-2">
+              <p className="text-xs font-medium text-warn-ink">
                 Adjusted before applying:
               </p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-900">
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-warn-ink">
                 {result.violations.map((v) => (
                   <li key={`${v.kind}-${v.detail}`}>{v.detail}</li>
                 ))}
@@ -186,7 +186,7 @@ function CoachCard() {
             </div>
           )}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-faint">
             {result.runtime}
             {result.model ? ` · ${result.model}` : ""}
             {result.validation ? ` · ${result.validation}` : ""}

@@ -21,9 +21,9 @@ export const BLOCKER_LABELS: Record<string, string> = {
 };
 
 export const DIFFICULTY_CLASSES: Record<Difficulty, string> = {
-  easy: "bg-emerald-100 text-emerald-800",
-  medium: "bg-amber-100 text-amber-800",
-  hard: "bg-rose-100 text-rose-800",
+  easy: "bg-success-bg text-success-ink",
+  medium: "bg-warn-bg text-warn-ink",
+  hard: "bg-danger-bg text-danger-ink",
 };
 
 export function formatMinutes(total: number): string {
@@ -69,11 +69,11 @@ export const BAND_LABELS: Record<ReadinessBand, string> = {
 };
 
 export const BAND_STYLES: Record<ReadinessBand, string> = {
-  calibrating: "bg-slate-100 text-slate-600",
-  not_ready: "bg-rose-100 text-rose-800",
-  developing: "bg-amber-100 text-amber-800",
-  approaching: "bg-sky-100 text-sky-800",
-  ready: "bg-emerald-100 text-emerald-800",
+  calibrating: "bg-inset text-ink-faint",
+  not_ready: "bg-danger-bg text-danger-ink",
+  developing: "bg-warn-bg text-warn-ink",
+  approaching: "bg-info-bg text-info-ink",
+  ready: "bg-success-bg text-success-ink",
 };
 
 export const ROLE_LABELS: Record<string, string> = {

@@ -22,8 +22,8 @@ export function ProgressPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Progress</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-2xl font-semibold text-ink">Progress</h1>
+        <p className="mt-1 text-sm text-ink-subtle">
           {report.calibrated_count} of {report.total_count} patterns have enough evidence
           to show a band.
         </p>
@@ -40,7 +40,7 @@ export function ProgressPage() {
             Nothing practised yet. Log a few attempts and estimates will appear here.
           </Empty>
         ) : (
-          <ul className="divide-y divide-slate-200">
+          <ul className="divide-y divide-line">
             {practised
               .slice()
               .sort((a, b) => a.estimate - b.estimate)
@@ -51,7 +51,7 @@ export function ProgressPage() {
         )}
 
         {untouched.length > 0 && (
-          <p className="mt-4 text-xs text-slate-500">
+          <p className="mt-4 text-xs text-ink-faint">
             {untouched.length} patterns have no evidence yet and are not shown.
           </p>
         )}
@@ -69,7 +69,7 @@ export function ProgressPage() {
               <Stat label="Lapses" value={retention.data.lapses} />
             </dl>
           ) : (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-ink-subtle">Loading…</p>
           )}
         </Card>
 
@@ -83,12 +83,12 @@ export function ProgressPage() {
             <ul className="space-y-2 text-sm">
               {locked.slice(0, 6).map((entry) => (
                 <li key={entry.slug}>
-                  <span className="font-medium text-slate-800">{entry.slug}</span>
-                  <span className="text-slate-500"> — needs {entry.blocked_by.join(", ")}</span>
+                  <span className="font-medium text-ink-muted">{entry.slug}</span>
+                  <span className="text-ink-faint"> — needs {entry.blocked_by.join(", ")}</span>
                 </li>
               ))}
               {locked.length > 6 && (
-                <li className="text-xs text-slate-500">and {locked.length - 6} more</li>
+                <li className="text-xs text-ink-faint">and {locked.length - 6} more</li>
               )}
             </ul>
           )}
@@ -102,24 +102,24 @@ export function ProgressPage() {
         {!triggers.data || triggers.data.length === 0 ? (
           <Empty>No reviews yet. Three relevant attempts triggers the first.</Empty>
         ) : (
-          <ul className="divide-y divide-slate-200">
+          <ul className="divide-y divide-line">
             {triggers.data.map((batch) => (
               <li key={batch.id} className="py-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span
                     className={`rounded px-2 py-0.5 text-xs font-medium ${
                       batch.material
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-slate-100 text-slate-700"
+                        ? "bg-warn-bg text-warn-ink"
+                        : "bg-inset text-ink-subtle"
                     }`}
                   >
                     {batch.material ? "Change detected" : "No change"}
                   </span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-ink-faint">
                     {formatDateTime(batch.evaluated_at)}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-slate-700">{batch.explanation}</p>
+                <p className="mt-1 text-sm text-ink-subtle">{batch.explanation}</p>
               </li>
             ))}
           </ul>
@@ -133,8 +133,8 @@ function PatternRow({ pattern }: { pattern: PatternReadiness }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3">
       <div className="min-w-0">
-        <p className="font-medium text-slate-900">{pattern.name}</p>
-        <p className="text-xs text-slate-500">
+        <p className="font-medium text-ink">{pattern.name}</p>
+        <p className="text-xs text-ink-faint">
           {pattern.evidence_count} {pattern.evidence_count === 1 ? "observation" : "observations"}
         </p>
       </div>
@@ -150,8 +150,8 @@ function PatternRow({ pattern }: { pattern: PatternReadiness }) {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="text-2xl font-semibold text-slate-900">{value}</dd>
+      <dt className="text-xs text-ink-faint">{label}</dt>
+      <dd className="text-2xl font-semibold text-ink">{value}</dd>
     </div>
   );
 }

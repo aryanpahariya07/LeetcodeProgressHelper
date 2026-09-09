@@ -43,8 +43,8 @@ export function LogAttemptPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Log an attempt</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-2xl font-semibold text-ink">Log an attempt</h1>
+        <p className="mt-1 text-sm text-ink-subtle">
           The extension will capture most of this automatically from Phase 2. Only the
           questions telemetry cannot answer will remain.
         </p>
@@ -145,7 +145,7 @@ export function LogAttemptPage() {
             </Field>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-ink-subtle">
             <input type="checkbox" {...register("is_resolve")} />
             This was a re-solve of a problem I&apos;d done before
           </label>
@@ -164,26 +164,26 @@ export function LogAttemptPage() {
       </Card>
 
       <Card title="Recent attempts">
-        {attempts.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {attempts.isLoading && <p className="text-sm text-ink-subtle">Loading…</p>}
         {attempts.data?.length === 0 && <Empty>Nothing logged yet.</Empty>}
         {attempts.data && attempts.data.length > 0 && (
-          <ul className="divide-y divide-slate-200">
+          <ul className="divide-y divide-line">
             {attempts.data.map((attempt) => {
               const note = confidenceNote(attempt.capture_confidence);
               return (
                 <li key={attempt.id} className="py-3 text-sm">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="font-medium text-slate-900">{attempt.problem.title}</span>
-                    <span className="text-xs text-slate-500">
+                    <span className="font-medium text-ink">{attempt.problem.title}</span>
+                    <span className="text-xs text-ink-faint">
                       {formatDateTime(attempt.submitted_at)}
                     </span>
                   </div>
-                  <p className="mt-1 text-slate-600">
+                  <p className="mt-1 text-ink-subtle">
                     {RESOLUTION_LABELS[attempt.resolution]}
                     {attempt.blocker && ` · ${BLOCKER_LABELS[attempt.blocker]}`}
                     {` · via ${attempt.source}`}
                   </p>
-                  {note && <p className="mt-0.5 text-xs text-amber-700">{note}</p>}
+                  {note && <p className="mt-0.5 text-xs text-warn-ink">{note}</p>}
                 </li>
               );
             })}

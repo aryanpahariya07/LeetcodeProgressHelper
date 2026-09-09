@@ -21,8 +21,8 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-slate-900">Settings</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-2xl font-semibold text-ink">Settings</h1>
+        <p className="mt-1 text-sm text-ink-subtle">
           Connect the browser extension and manage what has access to your data.
         </p>
       </header>
@@ -31,16 +31,16 @@ export function SettingsPage() {
         title="Connect the browser extension"
         description="The extension records LeetCode attempts automatically so you don't have to log them by hand."
       >
-        <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+        <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-ink-subtle">
           <li>Install the extension and open it from the toolbar.</li>
           <li>Generate a code below.</li>
           <li>Type it into the extension and press Connect.</li>
         </ol>
 
         {code ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-            <p className="font-mono text-2xl tracking-widest text-slate-900">{code.code}</p>
-            <p className="mt-2 text-xs text-slate-500">
+          <div className="rounded-md border border-line bg-inset p-4">
+            <p className="font-mono text-2xl tracking-widest text-ink">{code.code}</p>
+            <p className="mt-2 text-xs text-ink-faint">
               Single use, and expires in {Math.round(code.expires_in_seconds / 60)} minutes.
               Generating another code invalidates this one.
             </p>
@@ -66,7 +66,7 @@ export function SettingsPage() {
         {devices.data?.length === 0 && <Empty>No devices connected yet.</Empty>}
 
         {devices.data && devices.data.length > 0 && (
-          <ul className="divide-y divide-slate-200">
+          <ul className="divide-y divide-line">
             {devices.data.map((device) => (
               <DeviceRow
                 key={device.id}
@@ -82,7 +82,7 @@ export function SettingsPage() {
       <CodeCaptureCard />
 
       <Card title="What the extension can and cannot do">
-        <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-ink-subtle">
           <li>It runs only on LeetCode problem pages — nowhere else on the web.</li>
           <li>
             Its credential can <strong>send attempts and read its own settings</strong>. It
@@ -108,19 +108,19 @@ function DeviceRow({
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3">
       <div className="min-w-0">
-        <p className="font-medium text-slate-900">
+        <p className="font-medium text-ink">
           {device.name}
           {!device.active && (
-            <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+            <span className="ml-2 rounded bg-inset px-2 py-0.5 text-xs font-medium text-ink-subtle">
               revoked
             </span>
           )}
         </p>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-faint">
           Added {formatDateTime(device.created_at)}
           {device.last_seen_at && ` · last seen ${formatDateTime(device.last_seen_at)}`}
         </p>
-        <p className="mt-0.5 text-xs text-slate-400">{device.scopes.join(", ") || "no scopes"}</p>
+        <p className="mt-0.5 text-xs text-ink-faint">{device.scopes.join(", ") || "no scopes"}</p>
       </div>
       {device.active && (
         <Button variant="secondary" onClick={onRevoke} disabled={revoking}>
@@ -154,13 +154,13 @@ function CodeCaptureCard() {
 
       {state && (
         <>
-          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <p className="rounded-md border border-line bg-inset p-3 text-sm text-ink-subtle">
             {state.disclosure}
           </p>
 
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-ink-subtle">
             Current setting:{" "}
-            <strong>
+            <strong className="text-ink-muted">
               {state.decision === "always"
                 ? "Always allowed"
                 : state.decision === "never"

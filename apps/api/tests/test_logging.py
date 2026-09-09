@@ -106,8 +106,16 @@ class TestBodyLogging:
         assert "POST /echo" in caplog.text
         assert "not json" in caplog.text
 
-    def test_it_is_off_unless_asked_for(self) -> None:
-        assert Settings().log_request_bodies is False
+    def test_it_is_off_unless_asked_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Checking the field's actual default, not whatever a developer's local
+        # .env happens to say — Settings() reads .env the same way production
+        # does, and this repo's own .env sets LOG_REQUEST_BODIES=true for
+        # exactly the live-debugging workflow this file is testing around.
+        # `_env_file=None` is pydantic-settings' documented way to skip it for
+        # one instance without touching the class config.
+        monkeypatch.delenv("LOG_REQUEST_BODIES", raising=False)
+
+        assert Settings(_env_file=None).log_request_bodies is False  # type: ignore[call-arg]
 
 
 class TestConfigureLogging:

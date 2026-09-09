@@ -304,7 +304,15 @@ async def _persist(
             "generator_version": "phase3",
             "readiness_model": PRIMARY_MODEL,
             "focus_patterns": focus_names,
-            "focus_readiness": {slugs[p]: round(predictions[p].score, 3) for p in focus},
+            # `None` where a focus pattern has no evidence yet. A prescribed
+            # focus need not be one the user has already attempted — a pattern
+            # with no history is a legitimate target, and often the most
+            # informative one — so it simply has no readiness estimate. Writing
+            # 0.0 here would record a fact nobody observed (invariant 5).
+            "focus_readiness": {
+                slugs[p]: (round(predictions[p].score, 3) if p in predictions else None)
+                for p in focus
+            },
             "mix": {
                 "weakness": tuning.BLOCK_MIX_WEAKNESS,
                 "interleaved": tuning.BLOCK_MIX_INTERLEAVED,

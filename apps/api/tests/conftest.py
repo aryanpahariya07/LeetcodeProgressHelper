@@ -30,6 +30,12 @@ async def db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGener
     # Tests that need coach behaviour inject a `ScriptedRuntime`; the one that
     # needs the real thing is a manual check, not part of this suite.
     monkeypatch.setenv("COACH_RUNTIME", "stub")
+    # Same reasoning, different setting: a developer's local .env (e.g.
+    # LOG_REQUEST_BODIES=true, set while debugging the extension against a
+    # live server) is read by Settings() same as in production, and silently
+    # changed what "the default" meant to whichever test happened to assert
+    # one. Pin every env-backed setting a test relies on being at its default.
+    monkeypatch.setenv("LOG_REQUEST_BODIES", "false")
     get_settings.cache_clear()
     reset_engine_state()
 

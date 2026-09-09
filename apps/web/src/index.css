@@ -1,1 +1,79 @@
 @import "tailwindcss";
+
+/**
+ * The palette.
+ *
+ * Components name what a colour is *for* — `bg-surface`, `text-ink-muted`,
+ * `border-danger-line` — never which colour it is. Every value lives here, so
+ * the theme is one file rather than a few hundred utility classes spread across
+ * the pages, and a missed spot shows up as an unresolved class rather than a
+ * stray white patch.
+ *
+ * Two things dark themes usually get wrong, and this one tries not to:
+ *
+ * - **Not pure black.** A slightly blue-tinted near-black is easier to look at
+ *   for an hour, and it leaves room for `surface` to sit *above* the canvas
+ *   without the step reading as grey mush.
+ * - **Tinted, not saturated, status colours.** A solid amber-100 lifted from a
+ *   light theme glares against a dark background. The banner backgrounds here
+ *   stay dark and low-chroma, with the hue carried by the text instead.
+ *
+ * oklch, to match Tailwind 4's own palette: equal lightness steps look equal,
+ * which is what makes the surface ladder read as a ladder.
+ */
+@theme {
+  /* Surfaces, deepest first. Each step lifts toward the viewer. */
+  --color-canvas: oklch(0.17 0.013 264);
+  --color-surface: oklch(0.215 0.015 264);
+  --color-inset: oklch(0.26 0.016 264);
+
+  --color-line: oklch(0.3 0.017 264);
+  --color-line-strong: oklch(0.4 0.02 264);
+
+  /* Text, brightest first. */
+  --color-ink: oklch(0.96 0.004 264);
+  --color-ink-muted: oklch(0.8 0.01 264);
+  --color-ink-subtle: oklch(0.68 0.013 264);
+  --color-ink-faint: oklch(0.56 0.014 264);
+
+  /* The primary action. */
+  --color-accent: oklch(0.62 0.17 258);
+  --color-accent-hover: oklch(0.68 0.16 258);
+  --color-on-accent: oklch(0.99 0 0);
+
+  /* Status tones. Background and line stay dark; the ink carries the hue. */
+  --color-info-bg: oklch(0.28 0.05 245);
+  --color-info-line: oklch(0.4 0.07 245);
+  --color-info-ink: oklch(0.86 0.06 245);
+
+  --color-warn-bg: oklch(0.3 0.05 75);
+  --color-warn-line: oklch(0.43 0.07 75);
+  --color-warn-ink: oklch(0.88 0.08 80);
+
+  --color-danger-bg: oklch(0.29 0.06 20);
+  --color-danger-line: oklch(0.42 0.09 20);
+  --color-danger-ink: oklch(0.86 0.07 20);
+
+  --color-success-bg: oklch(0.28 0.05 160);
+  --color-success-line: oklch(0.4 0.07 160);
+  --color-success-ink: oklch(0.86 0.07 160);
+
+  /* Solid dots and bars, where a tint would be invisible at 8px. */
+  --color-positive: oklch(0.7 0.16 160);
+  --color-negative: oklch(0.64 0.19 22);
+}
+
+/**
+ * `color-scheme` is what makes the *browser's own* widgets dark — select
+ * dropdowns, the date picker, number spinners, checkboxes, scrollbars. Styling
+ * the page without this leaves a white dropdown hanging over a dark form, which
+ * is the usual tell of a half-finished dark theme. This app is mostly forms, so
+ * it matters more here than most.
+ *
+ * The background is repeated on `html` so the very first paint is already dark;
+ * otherwise there is a white flash before React mounts.
+ */
+html {
+  color-scheme: dark;
+  background-color: var(--color-canvas);
+}
