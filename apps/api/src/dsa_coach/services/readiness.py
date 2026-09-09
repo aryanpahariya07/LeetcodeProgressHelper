@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dsa_coach.mechanism.evidence import (
@@ -60,9 +60,24 @@ class StateRepository(Protocol):
         evidence: Evidence,
     ) -> None: ...
 
+    async def clear(self, session: AsyncSession, user_id: UUID) -> None:
+        """Drop every stored state for this user.
+
+        Only `recompute` uses this. Both models are incremental — a Beta
+        posterior and a Glicko rating are folded forward one attempt at a time —
+        so a corrected attempt cannot be edited in place. The state is dropped
+        and rebuilt by replaying the evidence (spec §3.3).
+        """
+        ...
+
 
 class BaselineRepository:
     """Beta posteriors, one row per (pattern, rating bucket)."""
+
+    async def clear(self, session: AsyncSession, user_id: UUID) -> None:
+        await session.execute(
+            delete(PatternBaselineBucket).where(PatternBaselineBucket.user_id == user_id)
+        )
 
     async def load_all(self, session: AsyncSession, user_id: UUID) -> dict[UUID, Any]:
         rows = (
@@ -143,6 +158,9 @@ class BaselineRepository:
 
 class GlickoRepository:
     """Glicko-2 state, one row per pattern."""
+
+    async def clear(self, session: AsyncSession, user_id: UUID) -> None:
+        await session.execute(delete(PatternRating).where(PatternRating.user_id == user_id))
 
     async def load_all(self, session: AsyncSession, user_id: UUID) -> dict[UUID, Any]:
         rows = (
@@ -333,6 +351,59 @@ async def apply_attempt(session: AsyncSession, user: User, attempt: Attempt) -> 
 
     await session.flush()
     return evidence
+
+
+@dataclass(frozen=True)
+class RecomputeResult:
+    attempts_replayed: int
+    attempts_counted: int
+
+
+async def recompute(session: AsyncSession, user: User) -> RecomputeResult:
+    """Rebuild every readiness model from the user's attempts (spec §3.3).
+
+    Amending an attempt changes evidence that has already been folded in, and
+    both models are incremental — a Beta posterior and a Glicko rating are
+    folded forward one attempt at a time — so there is no way to edit a single
+    past observation in place. The only correct answer is to drop the derived
+    state and replay.
+
+    Everything dropped here is *derived*: posteriors, ratings, and the
+    prediction log. No attempt, no plan and no piece of evidence is touched.
+    That is what makes this safe to run whenever a correction lands.
+
+    Predictions are re-logged as the replay proceeds, which keeps the
+    calibration data (spec §6.3) consistent with the corrected history rather
+    than mixing forecasts made against evidence that has since changed.
+    """
+    for repository in REPOSITORIES.values():
+        await repository.clear(session, user.id)
+    await session.execute(delete(ReadinessPrediction).where(ReadinessPrediction.user_id == user.id))
+    # The clears must land before the replay re-reads state, or `load_all` would
+    # hand back rows this transaction has already deleted.
+    await session.flush()
+
+    attempts = (
+        (
+            await session.execute(
+                select(Attempt)
+                .where(Attempt.user_id == user.id)
+                # Chronological, because each update depends on the state left by
+                # the one before it. Replaying out of order silently produces a
+                # different answer rather than an error.
+                .order_by(Attempt.submitted_at, Attempt.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    counted = 0
+    for attempt in attempts:
+        if await apply_attempt(session, user, attempt) is not None:
+            counted += 1
+
+    return RecomputeResult(attempts_replayed=len(attempts), attempts_counted=counted)
 
 
 def _weighted_prediction(

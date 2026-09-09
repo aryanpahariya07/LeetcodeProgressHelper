@@ -209,6 +209,33 @@ class AttemptOut(BaseModel):
     notes: str | None
 
 
+class AttemptAmendIn(BaseModel):
+    """A correction to an attempt already recorded (spec §3.3).
+
+    Only the questionnaire answers are amendable. Telemetry — timings, run
+    counts, the judge's verdict — is observed fact and is not editable after
+    the event; changing it by hand would be fabrication (invariant 5).
+
+    Every field is optional; omitting one leaves it alone. `None` is not usable
+    as "clear this", because it is indistinguishable from "not supplied" —
+    `clear_blocker` exists for that, since removing a wrongly-reported blocker
+    is a real correction.
+    """
+
+    resolution: Resolution | None = None
+    blocker: Blocker | None = None
+    clear_blocker: bool = False
+    confidence_cold_redo: Annotated[int, Field(ge=1, le=5)] | None = None
+    notes: Annotated[str, Field(max_length=2000)] | None = None
+
+
+class AmendmentResultOut(BaseModel):
+    attempt: AttemptOut
+    #: What the readiness replay did, so a correction is never silently inert.
+    attempts_replayed: int
+    changed_fields: list[str]
+
+
 # ------------------------------------------------------------------------ health
 
 

@@ -262,6 +262,15 @@ BLOCK_MIX_RETENTION: float = 0.15
 # Do not re-show a problem within this many days of the last attempt.
 COOLDOWN_DAYS: int = 21
 
+# How long an attempt stays amendable (spec §3.3).
+#
+# The case this exists for: you fail, dismiss the questionnaire, read the
+# editorial, then solve it. The prompt fired at the wrong moment to capture the
+# thing it most needed. A week is long enough to notice and correct that, and
+# short enough that a correction still describes something you remember rather
+# than a reconstruction.
+AMENDMENT_WINDOW_DAYS: int = 7
+
 # Minutes estimate: the problem's own difficulty, adjusted by predicted success.
 #
 # Two inputs because they are known at different times. A problem's rating is a
