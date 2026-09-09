@@ -20,7 +20,12 @@ import type {
   SubmissionOutcome,
 } from "./types";
 
-export type SessionPhase = "idle" | "working" | "awaiting_answer" | "complete";
+/**
+ * `left` is a terminal phase like `complete`, but carries no submission: the
+ * user worked on the problem and navigated away. It exists so the measured
+ * time survives (spec §3.6) without implying an outcome.
+ */
+export type SessionPhase = "idle" | "working" | "awaiting_answer" | "complete" | "left";
 
 export interface SubmissionObservation {
   outcome: Observed<SubmissionOutcome>;
@@ -78,7 +83,13 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
     case "open": {
       // Navigating to a different problem abandons the previous session.
       // LeetCode is a single-page app, so this is the common path, not the edge.
-      if (state.slug === event.slug && state.phase !== "complete") return state;
+      //
+      // Only an *in-flight* session for the same problem is kept. Coming back to
+      // a problem already parked as `complete` or `left` starts a fresh session,
+      // which is what makes a second visit its own measured stretch of time
+      // rather than an extension of the first.
+      const inFlight = state.phase === "working" || state.phase === "awaiting_answer";
+      if (state.slug === event.slug && inFlight) return state;
       return {
         ...emptySession(),
         phase: "working",
@@ -92,7 +103,11 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
     case "input":
     case "hidden":
     case "visible": {
-      if (state.phase === "idle" || state.phase === "complete") return state;
+      // Terminal phases have a closed timeline; appending after `end` would
+      // silently extend a measurement that is already finished.
+      if (state.phase === "idle" || state.phase === "complete" || state.phase === "left") {
+        return state;
+      }
       return { ...state, timeline: [...state.timeline, { kind: event.type, at: event.at }] };
     }
 
@@ -134,9 +149,17 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
 
     case "leave": {
       if (state.phase !== "working") return state;
-      // Left without submitting. There is no attempt to report — recording one
-      // would be inventing an outcome nobody observed.
-      return emptySession();
+      // Left without submitting. There is still no *attempt* to report —
+      // recording one would invent an outcome nobody observed — but the time
+      // spent was observed, and discarding it loses the only measurement of
+      // every problem worked on and abandoned (spec §3.6). So the timeline is
+      // closed and the session parked as `left`, from which the episode's
+      // active time can be read without any outcome being implied.
+      return {
+        ...state,
+        phase: "left",
+        timeline: [...state.timeline, { kind: "end", at: event.at }],
+      };
     }
 
     case "adapter_failed":
@@ -147,6 +170,41 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
 /** Whether the session has something worth sending. */
 export function isReportable(state: SessionState): boolean {
   return state.phase === "complete" && state.slug !== null && state.lastSubmission !== null;
+}
+
+export interface SessionTime {
+  slug: string;
+  startedAt: number;
+  activeSeconds: number;
+  hiddenSeconds: number;
+  runCount: number;
+  submitCount: number;
+}
+
+/**
+ * The measured time for a finished session, submission or not.
+ *
+ * `buildAttemptEvent` deliberately returns null without a submission, because
+ * an attempt without an outcome would be an invented one. But time spent is
+ * observed either way, and a problem worked on and walked away from has no
+ * other record of it (spec §3.6). This reads that much and nothing more.
+ *
+ * Returns null while the session is still running — an open timeline has no
+ * `end`, and `accountTime` would report zero rather than a partial figure.
+ */
+export function sessionTime(state: SessionState): SessionTime | null {
+  if (state.phase !== "complete" && state.phase !== "left") return null;
+  if (!state.slug || state.startedAt === null) return null;
+
+  const timing = accountTime(state.timeline);
+  return {
+    slug: state.slug,
+    startedAt: state.startedAt,
+    activeSeconds: timing.activeSeconds,
+    hiddenSeconds: timing.hiddenSeconds,
+    runCount: state.runCount,
+    submitCount: state.submitCount,
+  };
 }
 
 /**
@@ -170,7 +228,6 @@ export function overallConfidence(state: SessionState): CaptureConfidence {
 export interface BuildOptions {
   eventUuid: string;
   isResolve?: boolean;
-  idleThresholdMs?: number;
 }
 
 /** Turn a completed session into the event the API expects. */
@@ -180,7 +237,7 @@ export function buildAttemptEvent(
 ): AttemptEvent | null {
   if (!isReportable(state) || !state.slug || !state.lastSubmission) return null;
 
-  const timing = accountTime(state.timeline, options.idleThresholdMs);
+  const timing = accountTime(state.timeline);
 
   return {
     event_uuid: options.eventUuid,
@@ -203,7 +260,6 @@ export function buildAttemptEvent(
     capture_confidence: overallConfidence(state),
     raw_metadata: {
       hidden_seconds: timing.hiddenSeconds,
-      idle_seconds: timing.idleSeconds,
       adapter_healthy: state.adapterHealthy,
     },
   };

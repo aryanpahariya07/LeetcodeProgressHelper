@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { LeetCodeAdapter, matchLanguage, matchOutcome } from "../adapters/leetcode/adapter";
-import { accountTime, IDLE_THRESHOLD_MS, type TimelineEvent } from "./activeTime";
+import { accountTime, type TimelineEvent } from "./activeTime";
 import { delayFor, isRetryable, MAX_ATTEMPTS, shouldRetry } from "./backoff";
 import {
   buildAttemptEvent,
   emptySession,
   isReportable,
   overallConfidence,
+  sessionTime,
   reduce,
   type SessionEvent,
   type SessionState,
@@ -41,24 +42,9 @@ describe("accountTime", () => {
     expect(accountTime(timeline).activeSeconds).toBe(600);
   });
 
-  it("charges a long silence before the submission too", () => {
-    // The rule is symmetric: the last stretch before submitting is not exempt
-    // from it just because a submission follows.
-    const timeline: TimelineEvent[] = [
-      { kind: "start", at: T0 },
-      { kind: "input", at: T0 + minute },
-      { kind: "end", at: T0 + 10 * minute },
-    ];
-
-    const result = accountTime(timeline);
-
-    expect(result.idleSeconds).toBe(4 * 60);
-    expect(result.activeSeconds).toBe(6 * 60);
-  });
-
   it("counts thinking time as working time", () => {
-    // Four minutes of silence is under the threshold: this is someone staring at
-    // the screen working out the recurrence, and it must not be subtracted.
+    // Four minutes of silence: someone staring at the screen working out the
+    // recurrence. Not subtracted.
     const timeline: TimelineEvent[] = [
       { kind: "start", at: T0 },
       { kind: "input", at: T0 + 4 * minute },
@@ -71,8 +57,12 @@ describe("accountTime", () => {
     expect(result.excludedSeconds).toBe(0);
   });
 
-  it("excludes only the excess of a long silence, not the whole gap", () => {
-    // A 20-minute gap is 5 minutes of plausible thinking plus 15 minutes away.
+  it("counts a LONG silence as working time too (spec §3.4)", () => {
+    // The load-bearing test for the v3 revision. A twenty-minute silence with
+    // the tab visible used to be charged as fifteen minutes away; it is now
+    // counted in full. Silence is indistinguishable from thinking, and an
+    // arbitrary threshold that guesses otherwise under-measures exactly the
+    // sessions where the hardest thinking happened.
     const timeline: TimelineEvent[] = [
       { kind: "start", at: T0 },
       { kind: "input", at: T0 + 20 * minute },
@@ -81,11 +71,38 @@ describe("accountTime", () => {
 
     const result = accountTime(timeline);
 
-    expect(result.idleSeconds).toBe(15 * 60);
-    expect(result.activeSeconds).toBe(6 * 60);
+    expect(result.activeSeconds).toBe(21 * 60);
+    expect(result.excludedSeconds).toBe(0);
+  });
+
+  it("counts a long silence before the submission too", () => {
+    // Symmetric: the last stretch before submitting is not treated differently
+    // just because a submission follows it.
+    const timeline: TimelineEvent[] = [
+      { kind: "start", at: T0 },
+      { kind: "input", at: T0 + minute },
+      { kind: "end", at: T0 + 10 * minute },
+    ];
+
+    const result = accountTime(timeline);
+
+    expect(result.activeSeconds).toBe(10 * 60);
+    expect(result.excludedSeconds).toBe(0);
+  });
+
+  it("counts a session with no input at all", () => {
+    // Reading the problem statement for ten minutes without touching anything
+    // is working on it.
+    const timeline: TimelineEvent[] = [
+      { kind: "start", at: T0 },
+      { kind: "end", at: T0 + 10 * minute },
+    ];
+
+    expect(accountTime(timeline).activeSeconds).toBe(10 * 60);
   });
 
   it("excludes time spent on another tab", () => {
+    // The one exclusion that remains: being elsewhere is observed, not inferred.
     const timeline: TimelineEvent[] = [
       { kind: "start", at: T0 },
       { kind: "hidden", at: T0 + 2 * minute },
@@ -99,7 +116,10 @@ describe("accountTime", () => {
     expect(result.activeSeconds).toBe(4 * 60);
   });
 
-  it("does not double-charge a silence that happened while hidden", () => {
+  it("charges a hidden stretch once, not twice", () => {
+    // A silence spanning a hidden stretch is a single exclusion. This used to
+    // require special-casing against the idle rule; with only one rule left
+    // there is nothing to double-count, and the test guards that it stays so.
     const timeline: TimelineEvent[] = [
       { kind: "start", at: T0 },
       { kind: "hidden", at: T0 + minute },
@@ -110,7 +130,7 @@ describe("accountTime", () => {
 
     const result = accountTime(timeline);
 
-    expect(result.idleSeconds).toBe(0);
+    expect(result.hiddenSeconds).toBe(29 * 60);
     expect(result.activeSeconds).toBe(3 * 60);
   });
 
@@ -154,10 +174,6 @@ describe("accountTime", () => {
     ]);
 
     expect(shuffled).toEqual(ordered);
-  });
-
-  it("uses the documented five-minute threshold by default", () => {
-    expect(IDLE_THRESHOLD_MS).toBe(5 * minute);
   });
 });
 
@@ -206,12 +222,62 @@ describe("session state machine", () => {
     expect(buildAttemptEvent(state, { eventUuid: "x" })?.resolution).toBe("unknown");
   });
 
-  it("reports nothing when the user leaves without submitting", () => {
+  it("reports no attempt when the user leaves without submitting", () => {
     // Recording an attempt here would invent an outcome nobody observed.
     const state = run([openEvent(), { type: "leave", at: T0 + minute }]);
 
-    expect(state.phase).toBe("idle");
+    expect(state.phase).toBe("left");
     expect(isReportable(state)).toBe(false);
+    expect(buildAttemptEvent(state, { eventUuid: "x" })).toBeNull();
+  });
+
+  it("keeps the measured time when the user leaves without submitting", () => {
+    // No attempt, but the time was real. Discarding it would leave every
+    // abandoned problem with no record of the work done on it (spec §3.6).
+    const state = run([
+      openEvent("two-sum"),
+      { type: "run", at: T0 + 5 * minute },
+      { type: "leave", at: T0 + 12 * minute },
+    ]);
+
+    const time = sessionTime(state);
+
+    expect(time?.slug).toBe("two-sum");
+    expect(time?.activeSeconds).toBe(12 * 60);
+    expect(time?.runCount).toBe(1);
+    expect(time?.submitCount).toBe(0);
+  });
+
+  it("reports no time for a session still in progress", () => {
+    // An open timeline has no end; a partial figure would read as a real one.
+    const state = run([openEvent(), { type: "run", at: T0 + minute }]);
+
+    expect(sessionTime(state)).toBeNull();
+  });
+
+  it("starts a fresh session when returning to an abandoned problem", () => {
+    // A second visit is its own stretch of time, not an extension of the first.
+    const state = run([
+      openEvent("two-sum"),
+      { type: "leave", at: T0 + 10 * minute },
+      openEvent("two-sum", T0 + 60 * minute),
+      { type: "run", at: T0 + 62 * minute },
+    ]);
+
+    expect(state.phase).toBe("working");
+    expect(state.startedAt).toBe(T0 + 60 * minute);
+    expect(state.runCount).toBe(1);
+  });
+
+  it("ignores input after the session has been closed", () => {
+    // Appending past `end` would silently extend a finished measurement.
+    const state = run([
+      openEvent(),
+      { type: "leave", at: T0 + minute },
+      { type: "input", at: T0 + 30 * minute },
+    ]);
+
+    expect(sessionTime(state)?.activeSeconds).toBe(60);
   });
 
   it("abandons the old session when navigating to another problem", () => {

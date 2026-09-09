@@ -63,6 +63,18 @@ function start(): void {
     openCurrentProblem();
   });
 
+  // --- Closing the tab.
+  //
+  // `installNavigationHook` only catches SPA route changes; closing the tab or
+  // navigating off LeetCode entirely fires neither. Without this the session is
+  // simply lost, taking its measured time with it (spec §3.6).
+  //
+  // `pagehide` rather than `beforeunload`: it fires on mobile and for
+  // bfcache-restored pages, where `beforeunload` does not.
+  window.addEventListener("pagehide", () => {
+    if (state.phase === "working" && state.slug) dispatch({ type: "leave", at: Date.now() });
+  });
+
   // --- Interaction and visibility, feeding the active-time accounting.
   for (const type of ["keydown", "pointerdown"] as const) {
     document.addEventListener(type, () => dispatch({ type: "input", at: Date.now() }), {

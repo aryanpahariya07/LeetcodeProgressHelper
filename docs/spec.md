@@ -168,13 +168,26 @@ thinking is the most valuable activity in a DSA attempt and is indistinguishable
 idleness by any input-based heuristic.** Subtracting it systematically under-measures
 exactly the sessions where the real work happened.
 
-Therefore exclude only:
+Therefore exclude exactly one thing:
 
-- Time when the tab is hidden (`document.visibilityState !== 'visible'`), and
-- Contiguous gaps with no input **longer than 5 minutes** (configurable).
+- Time when the tab is hidden (`document.visibilityState !== 'visible'`).
 
-Record `excluded_seconds` and `exclusion_reason_counts` alongside `active_seconds` so
-the measurement is auditable and the threshold can be revisited against real data.
+**Silence is never excluded.** v3 originally also charged the *excess* of any no-input
+gap beyond five minutes. That is removed: it took the argument above seriously enough
+to state it and then contradicted it with an arbitrary threshold. A no-input gap is
+indistinguishable from thinking, so it is counted as thinking. Visibility is the only
+signal used, because it is the only one that reports something actually observed —
+you were looking at another tab — rather than inferred from an absence.
+
+Record `excluded_seconds` and `hidden_seconds` alongside `active_seconds` so the
+measurement stays auditable.
+
+> **Known limitation, accepted deliberately.** `visibilitychange` fires on tab switch
+> and minimise, but *not* reliably when another application is focused over the
+> browser. Leaving a problem open and walking away therefore accrues active time. The
+> alternative — reinstating an input-gap heuristic — under-measures genuine thinking,
+> which is the worse error for this product. Revisit only against real data showing
+> the inflation is material.
 
 ### 3.5 What v3 deliberately does not ask
 

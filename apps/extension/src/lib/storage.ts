@@ -24,7 +24,6 @@ export interface ExtensionConfig {
   deviceToken: string | null;
   deviceName: string | null;
   state: MonitoringState;
-  idleThresholdMs: number;
   maxBatchSize: number;
 }
 
@@ -35,7 +34,6 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   // Nothing is captured until the user explicitly connects. Monitoring is
   // opt-in (spec §4.4), so the default state is disconnected, not paused.
   state: "disconnected",
-  idleThresholdMs: 5 * 60 * 1000,
   maxBatchSize: 100,
 };
 
