@@ -14,11 +14,13 @@
  * directory.
  */
 
-import { leetcodeAdapter } from "../src/adapters/leetcode/adapter";
+import {
+  leetcodeAdapter,
+  type VerdictObservation,
+} from "../src/adapters/leetcode/adapter";
 import {
   NETWORK_MESSAGE,
   type ObservedSubmission,
-  type SubmissionKind,
 } from "../src/adapters/leetcode/network";
 import {
   buildAttemptEvent,
@@ -76,9 +78,23 @@ function start(): void {
 
   const adapter = leetcodeAdapter;
   let lastOutcomeText = "";
-  /// The kind of the last Run/Submit request seen, used to attribute a verdict
-  /// the adapter could not place. Null until the network observer reports one.
-  let lastRequestKind: SubmissionKind | null = null;
+  /**
+   * A submission is in flight and its verdict has not been recorded yet.
+   *
+   * Set when the observer sees a submit request, cleared when a verdict is
+   * recorded. This — not the presence of a verdict in the DOM — is what marks
+   * an attempt, because the DOM shows old verdicts on page load and shows Run
+   * verdicts in the same panels.
+   */
+  let awaitingVerdict = false;
+
+  /**
+   * Whether the network observer has ever reported anything.
+   *
+   * Until it has, there is no way to know a submission occurred, so the DOM is
+   * trusted on its own. Once it has proven itself, its silence is meaningful.
+   */
+  let observerHasReported = false;
 
   const openCurrentProblem = (): void => {
     const url = location.href;
@@ -91,13 +107,39 @@ function start(): void {
       language: adapter.language(document),
       at: Date.now(),
     });
+
+    // Whatever verdict is already on screen belongs to the past.
+    //
+    // Opening `/problems/<slug>/submissions/<id>/` — which is where LeetCode
+    // lands you after submitting — renders that earlier verdict into
+    // `submission-result`. Without this it is read as a fresh attempt the
+    // moment the observer first fires, inventing one attempt per page load.
+    // Seeding the dedup signature means only a *change* from here counts.
+    lastOutcomeText = signatureOf(adapter.submissionOutcome(document));
   };
 
   // --- SPA navigation. A full page load is the exception on LeetCode, so route
   // changes must be observed directly rather than relying on script re-injection.
   installNavigationHook(() => {
-    if (state.phase === "working" && state.slug) dispatch({ type: "leave", at: Date.now() });
-    lastOutcomeText = "";
+    // Only a move to a *different problem* ends the session.
+    //
+    // LeetCode routes between a problem's tabs — description, submissions,
+    // editorial — and submitting navigates to `/problems/<slug>/submissions/<id>/`
+    // on its own. Treating that as leaving parked the session and opened a
+    // fresh one *before* the verdict rendered, so every attempt was recorded
+    // against a session that had just been created: `run_count` back to zero,
+    // `active_seconds` a couple of seconds, and the runs leading up to the
+    // submission gone. Switching tabs is not leaving.
+    const nextSlug = adapter.problemSlug(location.href).value;
+    const movedOn = state.slug !== null && nextSlug !== state.slug;
+
+    if (movedOn) {
+      if (state.phase === "working") dispatch({ type: "leave", at: Date.now() });
+      // A verdict from the previous problem must not be mistaken for one here.
+      lastOutcomeText = "";
+      awaitingVerdict = false;
+    }
+
     noteAidView();
     openCurrentProblem();
   });
@@ -147,20 +189,38 @@ function start(): void {
   // Dispatching on the request would record an outcome before the judge had
   // returned one (invariant 5).
   window.addEventListener("message", (message: MessageEvent) => {
-    if (message.source !== window) return;
+    // Guarded on origin rather than `message.source !== window`. A content
+    // script runs in an isolated world, so its `window` is a different object
+    // from the page's, and identity comparison across that boundary is not
+    // dependable — it silently rejected every message, leaving `run_count` at
+    // zero and the language stuck on the DOM's guess.
+    //
+    // Origin is the guard that actually matters: it keeps an embedded frame
+    // from injecting events. The marker below then distinguishes ours from
+    // whatever else the page posts to itself.
+    if (message.origin !== window.location.origin) return;
     const data = message.data as ObservedSubmission | undefined;
     if (data?.source !== NETWORK_MESSAGE) return;
+
+    // Recorded before the session guard below, because whether the observer
+    // works is a fact about the observer, not about this session. Setting it
+    // afterwards meant a single early return — a message arriving while the
+    // session was between states — left it false forever, and the DOM fallback
+    // then treated every Run verdict as a submission.
+    observerHasReported = true;
+
     if (state.phase !== "working" || state.slug !== data.slug) return;
 
     if (data.lang) {
       // Authoritative: LeetCode is telling us what it is about to compile.
       dispatch({ type: "language", language: observed(data.lang, "high") });
     }
-    // Remembered so an ambiguous verdict can be attributed. A verdict the
-    // adapter cannot place belongs to whichever request was last sent.
-    lastRequestKind = data.kind;
     if (data.kind === "run") {
       dispatch({ type: "run", at: data.at });
+    } else {
+      // A submission is now in flight. The next verdict the DOM produces is
+      // its outcome, and is the one worth recording.
+      awaitingVerdict = true;
     }
   });
 
@@ -195,7 +255,7 @@ function start(): void {
 
     // The result panel persists after a submission, so the same verdict would
     // fire on every subsequent mutation. Only a *change* counts as new.
-    const signature = `${outcome.value}:${outcome.confidence}:${source}`;
+    const signature = signatureOf({ outcome, source });
     if (signature === lastOutcomeText) return;
     lastOutcomeText = signature;
 
@@ -206,17 +266,36 @@ function start(): void {
     // why `run_count` was always zero and why one problem produced an attempt
     // per Run.
     //
-    // `unknown` means the fallback text scan matched and cannot tell the
-    // panels apart; the last observed request decides. If the network observer
-    // never reported anything either, fall through to treating it as a
-    // submission — the previous behaviour, and the safer default for the case
-    // where the observer is broken but the DOM still works.
-    if (source === "console") return;
-    if (source === "unknown" && lastRequestKind === "run") return;
+    // A verdict in the DOM says what the outcome was. It does not say that a
+    // submission just happened, and the two are genuinely different questions:
+    //
+    //   - Opening `/problems/<slug>/submissions/<id>/` renders a *previous*
+    //     verdict into `submission-result`. Reading that as a new attempt
+    //     invents one, and every page load produced another.
+    //   - A Run renders its own verdict into `console-result`, and a Submit
+    //     that fails to compile renders there too — so the panel alone cannot
+    //     separate them either.
+    //
+    // The submit *request* is what actually marks a submission, so that is what
+    // gates recording. The DOM is left to supply the outcome, which is the one
+    // thing it is reliable about. `awaitingVerdict` is consumed here so a
+    // single submission cannot yield two attempts.
+    //
+    // If the network observer has never reported anything — broken, or a
+    // LeetCode change — this falls back to trusting the DOM, because losing
+    // every attempt is worse than occasionally recording a stale one.
+    if (observerHasReported) {
+      if (!awaitingVerdict) return;
+      awaitingVerdict = false;
+    }
 
     dispatch({ type: "submit", observation: { outcome, at: Date.now() } });
     void finish();
   });
+  // The session must exist (and its dedup signature be seeded with whatever
+  // verdict is already on screen) before the observer can fire, or a mutation
+  // in the gap is read against an empty signature and invents an attempt.
+  openCurrentProblem();
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
   // --- Adapter health (spec §4.3).
@@ -259,8 +338,13 @@ function start(): void {
     openCurrentProblem();
   };
 
-  openCurrentProblem();
   noteAidView();
+}
+
+/** A verdict's identity, so the same one is not reported twice. */
+function signatureOf(observation: VerdictObservation): string {
+  const { outcome, source } = observation;
+  return `${outcome.value}:${outcome.confidence}:${source}`;
 }
 
 /**
