@@ -103,7 +103,7 @@ no system Python required), Node 24 / npm 11.
 # --- api (from apps/api) ---
 uv sync                                          # install deps
 uv run uvicorn dsa_coach.main:app --reload       # api + web    :8000
-uv run pytest                                    # test         (465 tests)
+uv run pytest                                    # test         (481 tests)
 uv run ruff check .                              # lint
 uv run ruff format .                             # format
 uv run mypy                                      # typecheck    (strict)

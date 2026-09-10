@@ -17,6 +17,13 @@ from dsa_coach.db import Base
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
+#: Each of these spawns a cold Python and runs the full migration chain, which
+#: is slow on a loaded machine and gets slower with every migration added. 120s
+#: was enough until it was not — the suite failed on a timeout, not a defect,
+#: while the same test passed alone in twelve seconds.
+SUBPROCESS_TIMEOUT_SECONDS = 300
+
+
 def _run_alembic(db_url: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -27,7 +34,7 @@ def _run_alembic(db_url: str) -> subprocess.CompletedProcess[str]:
         },
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -94,7 +101,7 @@ def _run_alembic_to(db_url: str, revision: str) -> subprocess.CompletedProcess[s
         env={**_clean_env(), "DATABASE_URL": db_url},
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -185,7 +192,7 @@ def test_no_schema_drift_between_models_and_migrations(tmp_path: Path) -> None:
         env={**_clean_env(), "DATABASE_URL": url},
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert check.returncode == 0, (

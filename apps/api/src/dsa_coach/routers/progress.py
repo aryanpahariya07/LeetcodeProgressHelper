@@ -18,12 +18,14 @@ from dsa_coach.schemas import (
     ReadinessReportOut,
     RetentionOut,
     TriggerBatchOut,
+    UnfinishedProblemOut,
     UnlockOut,
 )
 from dsa_coach.services import placement as placement_service
 from dsa_coach.services import readiness as readiness_service
 from dsa_coach.services import retention as retention_service
 from dsa_coach.services import scheduling as scheduling_service
+from dsa_coach.services import snapshots as snapshot_service
 from dsa_coach.services import triggers as trigger_service
 
 router = APIRouter(tags=["progress"], dependencies=[Depends(require_scope(Scope.DASHBOARD))])
@@ -164,3 +166,27 @@ async def triggers(user: CurrentUser, session: DbSession) -> list[TriggerBatchOu
     """
     batches = await trigger_service.recent_batches(session, user)
     return [TriggerBatchOut.model_validate(b) for b in batches]
+
+
+@router.get("/progress/unfinished", response_model=list[UnfinishedProblemOut])
+async def unfinished_problems(user: CurrentUser, session: DbSession) -> list[UnfinishedProblemOut]:
+    """Problems worked on but never solved (spec §3.6).
+
+    Listed rather than swept up by a timer. Only the user knows the difference
+    between "gave up on this" and "coming back to it tomorrow", and those
+    produce opposite conclusions from identical data.
+    """
+    rows = await snapshot_service.unfinished(session, user)
+    return [
+        UnfinishedProblemOut(
+            problem_id=row.problem_id,
+            slug=row.slug,
+            title=row.title,
+            url=row.url,
+            run_count=row.run_count,
+            submit_count=row.submit_count,
+            first_seen_at=row.first_seen_at,
+            last_seen_at=row.last_seen_at,
+        )
+        for row in rows
+    ]

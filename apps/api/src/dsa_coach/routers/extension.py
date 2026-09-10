@@ -17,10 +17,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from dsa_coach.auth import Auth, CurrentUser, DbSession, Scope, require_scope
 from dsa_coach.config import Settings, get_settings
-from dsa_coach.ingest import ingest_events
-from dsa_coach.models import AttemptSource
-from dsa_coach.schemas import AttemptBatchIn, BatchResultOut
+from dsa_coach.ingest import ingest_events, resolve_or_create_problem
+from dsa_coach.models import AttemptSource, SnapshotKind
+from dsa_coach.schemas import (
+    AttemptBatchIn,
+    BatchResultOut,
+    SnapshotBatchIn,
+    SnapshotResultOut,
+)
 from dsa_coach.services import consent as consent_service
+from dsa_coach.services import snapshots as snapshot_service
 
 router = APIRouter(prefix="/extension", tags=["extension"])
 
@@ -83,3 +89,44 @@ async def extension_config(
         "code_capture_enabled": consent.may_send,
         "host_permissions": ["https://leetcode.com/problems/*"],
     }
+
+
+@router.post(
+    "/snapshots",
+    response_model=SnapshotResultOut,
+    dependencies=[Depends(require_scope(Scope.EXTENSION_INGEST))],
+)
+async def store_snapshots(
+    payload: SnapshotBatchIn,
+    user: CurrentUser,
+    session: DbSession,
+) -> SnapshotResultOut:
+    """Record the source from one or more Runs/Submits (spec §3.6).
+
+    Deliberately separate from attempt ingestion: runs happen *before* any
+    attempt exists, and the sequence of them is the thing worth keeping.
+
+    Nothing is analysed here. Snapshots are stored raw and left alone until the
+    problem is solved or abandoned, so a practice session never waits on a model
+    and a provider outage costs nothing but a delayed conclusion.
+    """
+    stored = 0
+    refused = 0
+    for item in payload.snapshots:
+        problem = await resolve_or_create_problem(session, item.provider, item.problem_slug)
+        snapshot = await snapshot_service.store(
+            session,
+            user,
+            snapshot_uuid=item.snapshot_uuid,
+            problem=problem,
+            kind=SnapshotKind(item.kind),
+            code=item.code,
+            language=item.language,
+            captured_at=item.captured_at,
+        )
+        if snapshot is None:
+            refused += 1
+        else:
+            stored += 1
+
+    return SnapshotResultOut(stored=stored, refused_no_consent=refused)

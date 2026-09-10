@@ -79,8 +79,10 @@ class ProblemOut(BaseModel):
     slug: str
     title: str
     url: str
-    difficulty: Difficulty
-    rating: int
+    # Null for a problem seen in the wild but never catalogued (§3.1). The UI
+    # shows "unrated" rather than a number nobody measured.
+    difficulty: Difficulty | None
+    rating: int | None
     rating_rd: int
 
 
@@ -499,3 +501,43 @@ class ComplexityOut(BaseModel):
     estimate: str
     confidence: str
     signals: list[str]
+
+
+# ------------------------------------------------------------------- snapshots
+
+
+class SnapshotIn(BaseModel):
+    """One Run or Submit's source, sent as it happens (spec §3.6)."""
+
+    #: Client-generated idempotency key (invariant 7): a retried send must not
+    #: store the same run twice.
+    snapshot_uuid: uuid.UUID
+    problem_slug: Annotated[str, Field(min_length=1, max_length=200)]
+    provider: str = "leetcode"
+    kind: Literal["run", "submit"]
+    language: Annotated[str, Field(max_length=32)] | None = None
+    code: Annotated[str, Field(min_length=1, max_length=200_000)]
+    captured_at: datetime
+
+
+class SnapshotBatchIn(BaseModel):
+    snapshots: Annotated[list[SnapshotIn], Field(min_length=1, max_length=50)]
+
+
+class SnapshotResultOut(BaseModel):
+    stored: int
+    #: How many were dropped because code capture is not consented. Reported
+    #: rather than silently swallowed — an extension sending code that is never
+    #: kept should be able to tell (invariant 9).
+    refused_no_consent: int
+
+
+class UnfinishedProblemOut(BaseModel):
+    problem_id: uuid.UUID
+    slug: str
+    title: str
+    url: str
+    run_count: int
+    submit_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime

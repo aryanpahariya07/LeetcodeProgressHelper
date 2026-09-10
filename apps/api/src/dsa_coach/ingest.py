@@ -252,3 +252,15 @@ async def _record_event(
     )
     session.add(row)
     return row
+
+
+async def resolve_or_create_problem(session: AsyncSession, provider: str, slug: str) -> Problem:
+    """The catalogue's problem, or an unrated placeholder for one it lacks.
+
+    Shared with snapshot capture, which meets the same problem a moment before
+    the attempt does and must agree with it about which row that is.
+    """
+    problem = await _resolve_problem(session, provider, slug)
+    if problem is None:
+        problem = await _create_unrated_problem(session, provider, slug)
+    return problem

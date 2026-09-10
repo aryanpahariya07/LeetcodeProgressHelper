@@ -919,3 +919,128 @@ class TeachingExchange(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
 
     __table_args__ = (Index("ix_teaching_user_time", "user_id", "created_at"),)
+
+
+class SnapshotKind(StrEnum):
+    RUN = "run"
+    SUBMIT = "submit"
+
+
+class AttemptSnapshot(Base):
+    """One Run or Submit's source, stored raw and unprocessed (spec §3.6).
+
+    Captured as it happens and left alone. No model reads it during practice —
+    the whole sequence is handed to the coach once, when the problem is solved
+    or abandoned, because the *sequence* is what carries the information. Going
+    straight to the optimal approach and brute-forcing then rewriting after a
+    TLE produce identical final source and represent completely different
+    skills.
+
+    Snapshots are unlinked from any attempt on purpose. Runs happen before an
+    attempt exists, and a problem worked on across several sittings has runs
+    that belong together but no submission to hang them on. The open set for a
+    (user, problem) *is* the current episode; `conclusion_id` is what closes it.
+
+    Held under code-capture consent (§8, invariant 9) and deleted after
+    `retention_until`. Retention exists so an improved extraction prompt can be
+    re-run on recent attempts; deleting immediately would be a one-way door.
+    """
+
+    __tablename__ = "attempt_snapshots"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    #: Client-generated, and the idempotency key (invariant 7). A retried send
+    #: must not store the same run twice.
+    snapshot_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("problems.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[SnapshotKind] = mapped_column(_enum(SnapshotKind, "snapshot_kind"))
+    language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    code: Mapped[str] = mapped_column(Text)
+    #: When the run happened, per the client. Ordering within an episode depends
+    #: on it, so it is the client's timestamp rather than the server's.
+    captured_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    #: Null while the episode is open. Set when a conclusion consumes it, which
+    #: is what stops the next episode picking up the previous one's runs.
+    conclusion_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("attempt_conclusions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    retention_until: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)
+
+    __table_args__ = (Index("ix_snapshot_open_episode", "user_id", "problem_id", "conclusion_id"),)
+
+
+class EpisodeOutcome(StrEnum):
+    SOLVED = "solved"
+    ABANDONED = "abandoned"
+
+
+class AttemptConclusion(Base):
+    """What the coach concluded from a run sequence (spec §3.6).
+
+    **Judgment, not evidence** (invariant 1). Its own table, never written into
+    `attempts`, and every field carries the coach's `confidence` so a low one
+    moves things less — the same discipline `capture_confidence` already applies
+    to a shaky capture.
+
+    `patterns_used` is the field to be most careful with. Readiness currently
+    credits patterns from the catalogue's tags, so solving `two-sum` with nested
+    loops raises hash-map readiness on evidence that does not exist. Correcting
+    that is the point — but a wrong "you did not use a hash map" is the opposite
+    error, suppressing readiness on false evidence, so one low-confidence
+    judgement must not fully override the catalogue.
+
+    `defects` holds tags from a closed, versioned vocabulary. The model picks
+    from the list or says `other`; it cannot invent one, because a vocabulary
+    that can grow freely cannot be counted, and counting is the entire point.
+    A weakness is a query over these — "off_by_one_bounds in 6 of your last 9" —
+    never a sentence stored anywhere.
+    """
+
+    __tablename__ = "attempt_conclusions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    problem_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("problems.id", ondelete="CASCADE"), index=True
+    )
+    #: The attempt that closed the episode. Null when abandoned — there was no
+    #: submission, and inventing one would be fabrication (invariant 5).
+    attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("attempts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    outcome: Mapped[EpisodeOutcome] = mapped_column(_enum(EpisodeOutcome, "episode_outcome"))
+
+    #: [{pattern_id, used, confidence}] — corrects catalogue-derived credit.
+    patterns_used: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    blocker_observed: Mapped[Blocker | None] = mapped_column(
+        _enum(Blocker, "blocker"), nullable=True
+    )
+    final_complexity: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    runs_before_pass: Mapped[int] = mapped_column(Integer, default=0)
+    #: Brute force rewritten as something better, or aimless thrashing. Only
+    #: visible because every run was kept.
+    approach_changed: Mapped[bool] = mapped_column(Boolean, default=False)
+    converged_at_run: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: Closed vocabulary, versioned so old conclusions stay interpretable.
+    defects: Mapped[list[str]] = mapped_column(JSON, default=list)
+    vocabulary_version: Mapped[str] = mapped_column(String(16), default="v1")
+
+    confidence: Mapped[str] = mapped_column(String(8), default="low")
+    #: Free text for what the vocabulary cannot express. Never parsed by code —
+    #: the moment anything depends on it, this is prose again.
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+    #: Which runtime produced it, for the audit trail (invariant 8).
+    runtime: Mapped[str] = mapped_column(String(40), default="")
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_now)

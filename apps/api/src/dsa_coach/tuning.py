@@ -110,6 +110,14 @@ CONTEST_RATING_RD: int = 75
 # rating (it is null), so this exists to make the intent legible in the row.
 UNRATED_RATING_RD: int = 350
 
+# How long a raw run snapshot is kept before deletion (spec §3.6, §8).
+#
+# Long enough that an improved extraction prompt can be re-run on recent
+# practice; short enough that the store of your source code does not grow
+# without bound. Deleting immediately would be a one-way door — the conclusion
+# survives regardless, so what is lost is only the ability to re-derive it.
+SNAPSHOT_RETENTION_DAYS: int = 30
+
 
 # ============================================================ PHASE 1: MECHANISM
 # Readiness, retention and scheduling. Bump ScoringConfigVersion when a change
