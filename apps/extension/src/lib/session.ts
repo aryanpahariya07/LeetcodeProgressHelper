@@ -88,7 +88,7 @@ export type SessionEvent =
   | { type: "answer"; answer: QuestionnaireAnswer }
   | { type: "dismiss" }
   | { type: "leave"; at: number }
-  | { type: "adapter_failed" };
+  | { type: "adapter_health"; healthy: boolean };
 
 export function reduce(state: SessionState, event: SessionEvent): SessionState {
   switch (event.type) {
@@ -197,8 +197,11 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       };
     }
 
-    case "adapter_failed":
-      return { ...state, adapterHealthy: false };
+    case "adapter_health":
+      // Tracks current health rather than latching on the first failure. The
+      // check races the editor rendering, so an early miss is normal and must
+      // not permanently downgrade the attempt's capture_confidence.
+      return { ...state, adapterHealthy: event.healthy };
   }
 }
 

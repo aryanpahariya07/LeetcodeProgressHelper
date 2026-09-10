@@ -360,12 +360,26 @@ describe("confidence", () => {
   it("drops when the adapter is broken", () => {
     const state = run([
       openEvent(),
-      { type: "adapter_failed" },
+      { type: "adapter_health", healthy: false },
       submitEvent(T0 + minute),
-      { type: "dismiss" },
     ]);
 
     expect(overallConfidence(state)).toBe("low");
+  });
+
+  it("recovers when the adapter starts working again", () => {
+    // The health check races the editor rendering, so an early miss is normal.
+    // Latching on it permanently downgraded every attempt in the session to
+    // low confidence, on the strength of a page that had not finished loading.
+    const state = run([
+      openEvent(),
+      { type: "adapter_health", healthy: false },
+      { type: "adapter_health", healthy: true },
+      submitEvent(T0 + minute),
+    ]);
+
+    expect(state.adapterHealthy).toBe(true);
+    expect(overallConfidence(state)).not.toBe("low");
   });
 });
 

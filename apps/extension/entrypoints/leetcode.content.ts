@@ -121,6 +121,16 @@ function start(): void {
     }
   };
 
+  /**
+   * Whether the user has done anything at all this session.
+   *
+   * `start` is the only timeline entry a freshly-opened session has; a keypress,
+   * a pointer press or a Run each add one more. Used to tell a verdict that was
+   * already on screen from one the user just produced.
+   */
+  const hasInteracted = (): boolean =>
+    state.timeline.some((entry) => entry.kind === "input");
+
   const openCurrentProblem = (): void => {
     const url = location.href;
     if (!adapter.isProblemPage(url)) return;
@@ -285,6 +295,7 @@ function start(): void {
     if (signature === lastOutcomeText) return;
     lastOutcomeText = signature;
 
+
     // A Run prints a verdict too, in a different panel, worded identically.
     // Recording it as a submission invents an attempt that never happened
     // (invariant 5) — and, worse, `finish` then resets the session, so the runs
@@ -313,6 +324,18 @@ function start(): void {
     if (observerHasReported) {
       if (!awaitingVerdict) return;
       awaitingVerdict = false;
+    } else if (!hasInteracted()) {
+      // The fallback, without this, records the verdict already on screen when
+      // the page loads. Landing on `/problems/<slug>/submissions/<id>/` — where
+      // LeetCode leaves you after submitting, and therefore where a reload
+      // starts — renders that old verdict a moment *after* the session opens,
+      // so seeding the dedup signature cannot catch it: at seeding time there
+      // is nothing on screen yet.
+      //
+      // An attempt requires evidence that the user did something. No keypress,
+      // no click, no run: nothing has happened this session, so whatever is
+      // displayed belongs to a previous one.
+      return;
     }
 
     dispatch({ type: "submit", observation: { outcome, at: Date.now() } });
@@ -343,7 +366,7 @@ function start(): void {
     if (health.healthy === lastHealthy) return;
     lastHealthy = health.healthy;
 
-    if (!health.healthy) dispatch({ type: "adapter_failed" });
+    dispatch({ type: "adapter_health", healthy: health.healthy });
     void send({
       type: "adapter_health",
       healthy: health.healthy,
