@@ -186,6 +186,10 @@ function start(): void {
   };
 
   observer = new MutationObserver(() => {
+    // The editor renders after `document_idle`, so this is where a failed
+    // startup health check gets to recover.
+    reportHealth();
+
     const { outcome, source } = adapter.submissionOutcome(document);
     if (!outcome.value) return;
 
@@ -215,16 +219,34 @@ function start(): void {
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-  // --- Adapter health. If the anchors are gone, say so loudly (spec §4.3).
-  const health = adapter.checkHealth(document);
-  if (!health.healthy) {
-    dispatch({ type: "adapter_failed" });
-  }
-  void send({
-    type: "adapter_health",
-    healthy: health.healthy,
-    missing: health.missing,
-  });
+  // --- Adapter health (spec §4.3).
+  //
+  // Re-checked as the page changes, not once at startup. LeetCode is a
+  // single-page app and `document_idle` fires well before the editor pane
+  // renders, so a single check at start reliably ran *before* the language
+  // picker existed. Health failed, the extension went `degraded` — and because
+  // nothing ever reported health again, it stayed there permanently, with no
+  // route back short of re-pairing. Two of this session's debugging days ended
+  // at that state.
+  //
+  // Only *changes* are reported, so the service worker is not told the same
+  // thing on every mutation.
+  let lastHealthy: boolean | null = null;
+
+  const reportHealth = (): void => {
+    const health = adapter.checkHealth(document);
+    if (health.healthy === lastHealthy) return;
+    lastHealthy = health.healthy;
+
+    if (!health.healthy) dispatch({ type: "adapter_failed" });
+    void send({
+      type: "adapter_health",
+      healthy: health.healthy,
+      missing: health.missing,
+    });
+  };
+
+  reportHealth();
 
   const finish = async (): Promise<void> => {
     // No questionnaire. The resolution is derived from the verdict plus whether

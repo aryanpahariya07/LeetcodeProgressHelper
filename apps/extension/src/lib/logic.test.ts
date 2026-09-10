@@ -706,3 +706,24 @@ describe("deriving the resolution without a questionnaire (spec §3.2)", () => {
     expect(deriveResolution(state)).toBe("independent");
   });
 });
+
+describe("recovering from a failed startup health check (spec §4.3)", () => {
+  it("a late-rendering page recovers once the anchors appear", () => {
+    // The failure that cost two debugging sessions. `checkHealth` used to run
+    // once at document_idle, which on this single-page app is before the editor
+    // pane exists — so the language picker was missing, health failed, and the
+    // extension sat `degraded` forever because nothing reported health again.
+    const afterFailedStartup = stateAfterHealth("monitoring", false);
+    expect(afterFailedStartup).toBe("degraded");
+
+    // The editor renders; the next check succeeds and must undo it.
+    expect(stateAfterHealth(afterFailedStartup, true)).toBe("monitoring");
+  });
+
+  it("keeps capturing throughout, degraded or not", () => {
+    // Even while degraded the attempt is recorded, with reduced confidence.
+    // Losing evidence to a rendering race is the worse of the two errors.
+    expect(shouldCapture("degraded")).toBe(true);
+    expect(shouldCapture("monitoring")).toBe(true);
+  });
+});
