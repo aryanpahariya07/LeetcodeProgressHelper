@@ -541,3 +541,10 @@ class UnfinishedProblemOut(BaseModel):
     submit_count: int
     first_seen_at: datetime
     last_seen_at: datetime
+
+
+class AbandonResultOut(BaseModel):
+    problem_id: uuid.UUID
+    conclusion_id: uuid.UUID
+    #: Reported so giving up still shows what the attempt consisted of.
+    runs_recorded: int

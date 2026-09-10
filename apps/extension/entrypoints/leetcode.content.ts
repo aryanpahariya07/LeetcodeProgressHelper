@@ -250,6 +250,28 @@ function start(): void {
       // Authoritative: LeetCode is telling us what it is about to compile.
       dispatch({ type: "language", language: observed(data.lang, "high") });
     }
+    // Every Run and Submit's source, kept as it happens (spec §3.6). The
+    // sequence is what carries the information — a clean solve and four passes
+    // at the same off-by-one differ only in the order they arrived — so runs
+    // are sent as they occur rather than waiting for an attempt that a run may
+    // never produce.
+    //
+    // Fire-and-forget: capture must never delay or interfere with practice, and
+    // the server refuses these outright without consent (invariant 9).
+    if (data.typedCode) {
+      void send({
+        type: "snapshot",
+        snapshot: {
+          snapshot_uuid: crypto.randomUUID(),
+          problem_slug: data.slug,
+          kind: data.kind,
+          language: data.lang,
+          code: data.typedCode,
+          captured_at: new Date(data.at).toISOString(),
+        },
+      });
+    }
+
     if (data.kind === "run") {
       dispatch({ type: "run", at: data.at });
     } else {

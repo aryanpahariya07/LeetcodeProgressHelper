@@ -6,7 +6,7 @@
  * the queue outlives the tab.
  */
 
-import { fetchConfig, sendBatch } from "../src/lib/api";
+import { fetchConfig, sendBatch, sendSnapshot, type SnapshotPayload } from "../src/lib/api";
 import { delayFor, shouldRetry } from "../src/lib/backoff";
 import { shouldCapture, stateAfterHealth } from "../src/lib/monitoring";
 import * as store from "../src/lib/storage";
@@ -34,6 +34,7 @@ type Message =
   | { type: "adapter_health"; healthy: boolean; missing: string[] }
   | { type: "get_status" }
   | { type: "get_config" }
+  | { type: "snapshot"; snapshot: SnapshotPayload }
   | { type: "sync_now" };
 
 async function handleMessage(message: Message): Promise<unknown> {
@@ -77,6 +78,15 @@ async function handleMessage(message: Message): Promise<unknown> {
 
     case "get_status":
       return currentStatus();
+
+    case "snapshot": {
+      // Not queued. A snapshot is context around an attempt, not the evidence
+      // itself, and holding source code on disk to retry it later would keep
+      // code around for longer than sending it does.
+      const config = await store.getConfig();
+      if (!config.deviceToken || !shouldCapture(config.state)) return { sent: false };
+      return { sent: await sendSnapshot(config.apiBaseUrl, config.deviceToken, message.snapshot) };
+    }
 
     case "get_config": {
       // Proxied through the worker because the content script holds no

@@ -1,9 +1,10 @@
 """Progress and plan-generation endpoints (Phase 1)."""
 
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
 from dsa_coach.auth import CurrentUser, DbSession, Scope, require_scope
@@ -11,6 +12,7 @@ from dsa_coach.mechanism.prerequisites import PrerequisiteEdge, evaluate_unlocks
 from dsa_coach.mechanism.readiness import MODELS, PRIMARY_MODEL
 from dsa_coach.models import Pattern, PatternPrerequisite
 from dsa_coach.schemas import (
+    AbandonResultOut,
     BlockResultOut,
     PatternReadinessOut,
     PlacementOut,
@@ -190,3 +192,29 @@ async def unfinished_problems(user: CurrentUser, session: DbSession) -> list[Unf
         )
         for row in rows
     ]
+
+
+@router.post("/progress/unfinished/{problem_id}/abandon", response_model=AbandonResultOut)
+async def abandon_problem(
+    problem_id: uuid.UUID, user: CurrentUser, session: DbSession
+) -> AbandonResultOut:
+    """Give up on a problem, closing its episode (spec §3.6).
+
+    A button rather than a timeout, because only you know the difference between
+    "gave up on this" and "coming back to it tomorrow", and those produce
+    opposite conclusions from identical data.
+
+    Not permanent: returning to the problem later starts a fresh episode with
+    its own snapshots, and this one stays as the record of what happened first.
+    """
+    conclusion = await snapshot_service.abandon(session, user, problem_id)
+    if conclusion is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nothing in progress for that problem.",
+        )
+    return AbandonResultOut(
+        problem_id=problem_id,
+        conclusion_id=conclusion.id,
+        runs_recorded=conclusion.runs_before_pass,
+    )

@@ -152,3 +152,43 @@ export async function fetchConfig(
     return null;
   }
 }
+
+export interface SnapshotPayload {
+  snapshot_uuid: string;
+  problem_slug: string;
+  kind: "run" | "submit";
+  language: string | null;
+  code: string;
+  captured_at: string;
+}
+
+/**
+ * Send one Run/Submit snapshot (spec §3.6).
+ *
+ * Best-effort by design. A lost snapshot costs one entry in a sequence, and is
+ * not worth the durable queue that attempts get: attempts are the evidence,
+ * snapshots are the colour around them. Retrying would also mean holding source
+ * code on disk for longer than the moment it is in flight.
+ *
+ * The server refuses these outright without code-capture consent, so a `stored:
+ * 0` reply is a normal outcome rather than a failure.
+ */
+export async function sendSnapshot(
+  baseUrl: string,
+  token: string,
+  snapshot: SnapshotPayload,
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/extension/snapshots`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ snapshots: [snapshot] }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

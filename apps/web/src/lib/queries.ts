@@ -10,6 +10,7 @@ import {
 import { api, ApiError } from "./api";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
 import type {
+  AbandonResult,
   Attempt,
   CoachRun,
   ConsentResult,
@@ -25,6 +26,7 @@ import type {
   TriggerBatch,
   Unlock,
   User,
+  UnfinishedProblem,
 } from "./types";
 
 export const keys = {
@@ -178,5 +180,18 @@ export function useRevokeConsent() {
 export function useHint() {
   return useMutation<Teaching, ApiError, string>({
     mutationFn: (problemSlug) => api.hint(problemSlug),
+  });
+}
+
+export function useUnfinished(): UseQueryResult<UnfinishedProblem[], ApiError> {
+  return useQuery({ queryKey: ["unfinished"], queryFn: api.unfinished });
+}
+
+export function useAbandon() {
+  const client = useQueryClient();
+  return useMutation<AbandonResult, ApiError, string>({
+    mutationFn: (problemId) => api.abandon(problemId),
+    // The list is the only place this is visible, so it must not go stale.
+    onSuccess: () => client.invalidateQueries({ queryKey: ["unfinished"] }),
   });
 }

@@ -6,6 +6,7 @@
  */
 
 import type {
+  AbandonResult,
   Attempt,
   BlockResult,
   CoachRun,
@@ -24,6 +25,7 @@ import type {
   TriggerBatch,
   Unlock,
   User,
+  UnfinishedProblem,
 } from "./types";
 import type { AttemptFormValues, OnboardingFormValues } from "./schemas";
 
@@ -125,6 +127,13 @@ export const api = {
     }),
   revokeConsent: () =>
     request<ConsentResult>("/consents/code-capture", { method: "DELETE" }),
+
+  unfinished: () => request<UnfinishedProblem[]>("/progress/unfinished"),
+
+  abandon: (problemId: string) =>
+    request<AbandonResult>(`/progress/unfinished/${problemId}/abandon`, {
+      method: "POST",
+    }),
 
   hint: (problemSlug: string) =>
     request<Teaching>("/coach/hint", {

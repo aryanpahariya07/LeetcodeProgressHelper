@@ -240,3 +240,27 @@ export interface Teaching {
   cited_attempt_ids: string[];
   reason: string;
 }
+
+/**
+ * A problem worked on but never solved (spec §3.6).
+ *
+ * Listed rather than swept up by a timer: only you know the difference between
+ * "gave up on this" and "coming back to it tomorrow", and those produce
+ * opposite conclusions from identical data.
+ */
+export interface UnfinishedProblem {
+  problem_id: string;
+  slug: string;
+  title: string;
+  url: string;
+  run_count: number;
+  submit_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface AbandonResult {
+  problem_id: string;
+  conclusion_id: string;
+  runs_recorded: number;
+}

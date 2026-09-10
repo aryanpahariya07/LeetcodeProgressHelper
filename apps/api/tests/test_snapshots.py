@@ -318,3 +318,77 @@ class TestRetentionPurge:
 
         assert await snapshot_service.purge_expired(session) == 0
         assert await count_snapshots(session) == 1
+
+
+class TestAbandon:
+    async def test_abandoning_closes_the_episode(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str]
+    ) -> None:
+        await allow_code(onboarded)
+        await onboarded.post(
+            "/extension/snapshots",
+            json={"snapshots": [snap(), snap(), snap(kind="submit")]},
+            headers=extension_auth,
+        )
+        listed = (await onboarded.get("/progress/unfinished")).json()
+
+        response = await onboarded.post(f"/progress/unfinished/{listed[0]['problem_id']}/abandon")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["runs_recorded"] == 2
+        assert (await onboarded.get("/progress/unfinished")).json() == []
+
+    async def test_the_snapshots_are_kept_not_deleted(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str], session: AsyncSession
+    ) -> None:
+        # Giving up is an outcome worth learning from — the runs are what the
+        # conclusion will be drawn from, so abandoning must not discard them.
+        await allow_code(onboarded)
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+        listed = (await onboarded.get("/progress/unfinished")).json()
+
+        await onboarded.post(f"/progress/unfinished/{listed[0]['problem_id']}/abandon")
+
+        assert await count_snapshots(session) == 1
+
+    async def test_returning_later_starts_a_fresh_episode(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str]
+    ) -> None:
+        # Abandoning is not permanent (spec §3.6). The new runs must not be
+        # mixed with the ones already concluded on.
+        await allow_code(onboarded)
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+        listed = (await onboarded.get("/progress/unfinished")).json()
+        await onboarded.post(f"/progress/unfinished/{listed[0]['problem_id']}/abandon")
+
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+
+        again = (await onboarded.get("/progress/unfinished")).json()
+        assert len(again) == 1
+        assert again[0]["run_count"] == 1
+
+    async def test_abandoning_nothing_is_a_404_not_a_crash(self, onboarded: AsyncClient) -> None:
+        response = await onboarded.post(f"/progress/unfinished/{uuid.uuid4()}/abandon")
+
+        assert response.status_code == 404
+
+    async def test_abandoning_twice_is_refused_not_duplicated(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str]
+    ) -> None:
+        await allow_code(onboarded)
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+        listed = (await onboarded.get("/progress/unfinished")).json()
+        problem_id = listed[0]["problem_id"]
+
+        await onboarded.post(f"/progress/unfinished/{problem_id}/abandon")
+        second = await onboarded.post(f"/progress/unfinished/{problem_id}/abandon")
+
+        assert second.status_code == 404

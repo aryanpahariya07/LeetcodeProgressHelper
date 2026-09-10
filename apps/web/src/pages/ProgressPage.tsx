@@ -1,6 +1,13 @@
-import { Banner, Card, Empty, Loading } from "../components/ui";
+import { Banner, Button, Card, Empty, Loading } from "../components/ui";
 import { BAND_LABELS, BAND_STYLES, formatDateTime } from "../lib/format";
-import { useReadiness, useRetention, useTriggers, useUnlocks } from "../lib/queries";
+import {
+  useAbandon,
+  useReadiness,
+  useRetention,
+  useTriggers,
+  useUnfinished,
+  useUnlocks,
+} from "../lib/queries";
 import type { PatternReadiness } from "../lib/types";
 
 export function ProgressPage() {
@@ -95,6 +102,8 @@ export function ProgressPage() {
         </Card>
       </div>
 
+      <UnfinishedCard />
+
       <Card
         title="Plan reviews"
         description="Every third relevant attempt triggers a review — including the ones that change nothing."
@@ -153,5 +162,72 @@ function Stat({ label, value }: { label: string; value: number }) {
       <dt className="text-xs text-ink-faint">{label}</dt>
       <dd className="text-2xl font-semibold text-ink">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * Problems worked on but never solved (spec §3.6).
+ *
+ * Shown rather than swept up by a timer, because only you know the difference
+ * between "gave up on this" and "coming back to it tomorrow" — and those
+ * produce opposite conclusions from identical data. Abandoning is a deliberate
+ * act, and is not permanent: picking the problem up again starts fresh.
+ */
+function UnfinishedCard() {
+  const unfinished = useUnfinished();
+  const abandon = useAbandon();
+
+  return (
+    <Card
+      title="Unfinished"
+      description="Problems you started and haven't solved. Abandon one to record what happened and clear it."
+    >
+      {unfinished.isLoading && <p className="text-sm text-ink-subtle">Loading…</p>}
+      {unfinished.isError && <Banner tone="error">{unfinished.error.message}</Banner>}
+
+      {unfinished.data?.length === 0 && <Empty>Nothing left hanging.</Empty>}
+
+      {unfinished.data && unfinished.data.length > 0 && (
+        <ul className="divide-y divide-line">
+          {unfinished.data.map((problem) => (
+            <li
+              key={problem.problem_id}
+              className="flex flex-wrap items-center justify-between gap-3 py-3"
+            >
+              <div className="min-w-0">
+                <a
+                  href={problem.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-ink underline-offset-2 hover:underline"
+                >
+                  {problem.title}
+                </a>
+                <p className="text-xs text-ink-faint">
+                  {problem.run_count} {problem.run_count === 1 ? "run" : "runs"}
+                  {problem.submit_count > 0 &&
+                    `, ${problem.submit_count} ${problem.submit_count === 1 ? "submission" : "submissions"}`}
+                  {" · last worked on "}
+                  {formatDateTime(problem.last_seen_at)}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => abandon.mutate(problem.problem_id)}
+                disabled={abandon.isPending}
+              >
+                Abandon
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {abandon.isError && (
+        <div className="mt-3">
+          <Banner tone="error">{abandon.error.message}</Banner>
+        </div>
+      )}
+    </Card>
   );
 }

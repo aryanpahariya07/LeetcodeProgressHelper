@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dsa_coach import tuning
 from dsa_coach.models import (
     Attempt,
+    AttemptConclusion,
     AttemptSnapshot,
+    EpisodeOutcome,
     Problem,
     SnapshotKind,
     SubmissionOutcome,
@@ -195,3 +197,37 @@ async def purge_expired(session: AsyncSession, now: datetime | None = None) -> i
         await session.delete(row)
     await session.flush()
     return len(rows)
+
+
+async def abandon(
+    session: AsyncSession, user: User, problem_id: uuid.UUID
+) -> AttemptConclusion | None:
+    """Close an open episode the user has given up on (spec §3.6).
+
+    Returns None when there is nothing open — abandoning a problem you never
+    started, or one already closed, is a no-op rather than an error.
+
+    A conclusion row is created and the snapshots are attached to it, which is
+    what takes the problem off the unfinished list and stops the next episode
+    inheriting these runs. The *contents* of the conclusion are filled in
+    separately by the coach; this only closes the episode, so giving up never
+    waits on a model and works with the provider down (invariant 4).
+    """
+    snapshots = await open_episode(session, user, problem_id)
+    if not snapshots:
+        return None
+
+    conclusion = AttemptConclusion(
+        user_id=user.id,
+        problem_id=problem_id,
+        attempt_id=None,
+        outcome=EpisodeOutcome.ABANDONED,
+        runs_before_pass=sum(1 for s in snapshots if s.kind is SnapshotKind.RUN),
+    )
+    session.add(conclusion)
+    await session.flush()
+
+    for snapshot in snapshots:
+        snapshot.conclusion_id = conclusion.id
+    await session.flush()
+    return conclusion
