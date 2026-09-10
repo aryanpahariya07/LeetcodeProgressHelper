@@ -270,8 +270,17 @@ sitting unread forever.
 
 Abandonment is not inferred from a timer. Problems with at least one run and no
 accepted submission are **listed in the web app** as unfinished, where they are
-visible rather than quietly swept up. Processing happens when one is solved, or when
-it is dismissed from that list.
+visible rather than quietly swept up. Each carries an **Abandon** button, and
+processing happens when one is solved or when that button is pressed.
+
+A button rather than a timeout because only you know the difference between "gave up
+on this" and "coming back to it tomorrow", and the two produce opposite conclusions
+from identical data. A timer would have to guess, and would guess wrong on every
+problem left overnight.
+
+Abandoning is not permanent. Returning to the problem later starts a new episode with
+its own snapshots and its own conclusion; the abandoned one stays as the record of
+what happened the first time.
 
 #### The conclusion
 
