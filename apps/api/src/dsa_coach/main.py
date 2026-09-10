@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 API_PREFIX = "/api/v1"
 
+#: Requests that carry a body worth logging.
+MUTATING_METHODS = frozenset({"POST", "PATCH", "PUT", "DELETE"})
+
 #: apps/api/src/dsa_coach/main.py -> apps/web/dist
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -92,15 +95,18 @@ def _install_body_logging(app: FastAPI, settings: Settings) -> None:
     supposed to send. Uvicorn's access log gives the method, path and status;
     this fills in the part that decides whether an event was usable.
 
-    Only mutating methods are logged — a GET body is almost always absent, and
-    logging one per dashboard poll would drown the interesting lines.
+    Only mutating methods are logged by default — a GET body is almost always
+    absent, and one line per dashboard poll drowns the interesting ones. Set
+    `log_request_reads` when the question is whether a client is reaching the
+    server at all, which is the case this filter otherwise makes harder.
     """
     body_logger = logging.getLogger("dsa_coach.request")
     limit = settings.log_body_max_chars
+    log_reads = settings.log_request_reads
 
     @app.middleware("http")
     async def log_bodies(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method not in {"POST", "PATCH", "PUT", "DELETE"}:
+        if not log_reads and request.method not in MUTATING_METHODS:
             return await call_next(request)
 
         raw = await request.body()

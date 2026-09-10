@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     #: Raise it if a payload you need is being cut off.
     log_body_max_chars: int = 4000
 
+    #: Log reads as well as writes.
+    #:
+    #: Off by default because the dashboard polls, and a wall of `GET /today`
+    #: buries the one `POST /attempts` you are usually looking for. But when the
+    #: question is "is the extension reaching the server *at all*", seeing every
+    #: request is exactly what you want — so this is a setting rather than
+    #: something to comment out in `main.py`, which is how it kept getting done.
+    log_request_reads: bool = False
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")

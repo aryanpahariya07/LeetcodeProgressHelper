@@ -21,7 +21,16 @@ from dsa_coach.main import _install_body_logging
 
 
 def app_with_logging(**settings_kwargs: object) -> FastAPI:
-    settings = Settings(log_request_bodies=True, **settings_kwargs)  # type: ignore[arg-type]
+    # `_env_file=None` so the developer's own .env cannot decide what these
+    # tests are testing. This repo's .env sets both LOG_REQUEST_BODIES and
+    # LOG_REQUEST_READS for live debugging, and each one in turn has silently
+    # inverted a test here. A helper that builds settings for a test should
+    # take them from the test, not from the machine it runs on.
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        log_request_bodies=True,
+        **settings_kwargs,  # type: ignore[arg-type]
+    )
     app = FastAPI()
     _install_body_logging(app, settings)
 
@@ -148,3 +157,20 @@ class TestConfigureLogging:
         handlers = logging.getLogger("dsa_coach").handlers
 
         assert len(handlers) == 1
+
+
+class TestReadLogging:
+    """`log_request_reads` — the escape hatch for "is anything arriving at all"."""
+
+    def test_reads_are_logged_when_asked_for(self, caplog: pytest.LogCaptureFixture) -> None:
+        client = TestClient(app_with_logging(log_request_reads=True))
+
+        with caplog.at_level(logging.INFO, logger="dsa_coach.request"):
+            client.get("/plain")
+
+        assert "GET /plain" in caplog.text
+
+    def test_it_is_off_by_default(self) -> None:
+        # Existing as a setting is the point: it kept being done by commenting
+        # out the filter in main.py, which broke the test above it every time.
+        assert Settings(_env_file=None).log_request_reads is False  # type: ignore[call-arg]
