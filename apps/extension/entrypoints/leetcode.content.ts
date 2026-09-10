@@ -43,6 +43,37 @@ function start(): void {
     state = reduce(state, event);
   };
 
+  let orphaned = false;
+
+  /**
+   * Send to the background worker, surviving an orphaned content script.
+   *
+   * Reloading the extension does not replace the content scripts already
+   * injected into open tabs. They keep running with a dead `chrome.runtime`, so
+   * every send throws "Extension context invalidated" — and because the failure
+   * is an unhandled rejection deep inside a MutationObserver callback, the
+   * visible symptom is simply that nothing is ever captured. That is exactly
+   * how it presented: LeetCode working, the API never hit, and no obvious cause.
+   *
+   * The page must be reloaded to get a live content script. Nothing here can
+   * fix that, so this makes it *legible* instead: say so once, and stop
+   * pretending to monitor.
+   */
+  const send = async (message: object): Promise<void> => {
+    if (orphaned) return;
+    try {
+      await chrome.runtime.sendMessage(message);
+    } catch (error) {
+      if (!isContextInvalidated(error)) throw error;
+      orphaned = true;
+      stopObserving();
+      console.warn(
+        "[DSA Coach] The extension was reloaded, so this tab is no longer " +
+          "being monitored. Reload the page to resume capturing attempts.",
+      );
+    }
+  };
+
   const adapter = leetcodeAdapter;
   let lastOutcomeText = "";
 
@@ -124,7 +155,13 @@ function start(): void {
   });
 
   // --- Submission results.
-  const observer = new MutationObserver(() => {
+  let observer: MutationObserver | null = null;
+  const stopObserving = (): void => {
+    observer?.disconnect();
+    observer = null;
+  };
+
+  observer = new MutationObserver(() => {
     const observation = adapter.submissionOutcome(document);
     if (!observation.value) return;
 
@@ -144,7 +181,7 @@ function start(): void {
   if (!health.healthy) {
     dispatch({ type: "adapter_failed" });
   }
-  void chrome.runtime.sendMessage({
+  void send({
     type: "adapter_health",
     healthy: health.healthy,
     missing: health.missing,
@@ -156,12 +193,23 @@ function start(): void {
 
     const event = buildAttemptEvent(state, { eventUuid: crypto.randomUUID() });
     if (!event) return;
-    await chrome.runtime.sendMessage({ type: "capture", event });
+    await send({ type: "capture", event });
     state = emptySession();
     openCurrentProblem();
   };
 
   openCurrentProblem();
+}
+
+/**
+ * Whether an error is the orphaned-content-script one.
+ *
+ * Matched on the message because Chrome throws a plain `Error` for it — there
+ * is no type or code to check. Narrow deliberately: any other failure is a real
+ * one and must not be swallowed as "the extension was reloaded".
+ */
+function isContextInvalidated(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Extension context invalidated");
 }
 
 /**
