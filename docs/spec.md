@@ -298,7 +298,7 @@ AttemptConclusion                  # one per attempt, derived from the run seque
   runs_before_pass      int
   approach_changed      bool                # brute force → optimal, or thrashing
   converged_at_run      int | null
-  defects               [DefectTag]         # closed vocabulary
+  defects               [{tag, detail}]     # tag closed, detail free text
   confidence            low | medium | high
   notes                 str                 # free text, never read by code
 ```
@@ -322,10 +322,15 @@ Roughly 30–50 values across correctness (`off_by_one_bounds`,
 pattern application (`visited_set_missing`, `window_shrink_wrong`), and process
 signals only the sequence reveals (`thrashing_no_hypothesis`, `premature_submission`).
 
-The vocabulary will be wrong at first — no taxonomy is right on paper. `other` carries
-free text, what accumulates there is reviewed periodically, and frequent entries are
-promoted into the enum. The vocabulary is versioned so older conclusions stay
-interpretable.
+Each entry is `{tag, detail}`. The tag is closed; `detail` is optional free text —
+required in spirit for `other`, where it says *what* was seen that the vocabulary
+could not express. Useful on known tags too: `off_by_one_bounds` reads better with
+"in the while condition" attached. Nothing ever parses `detail`; counting is done on
+`tag` alone, which is precisely why `tag` must stay closed.
+
+The vocabulary will be wrong at first — no taxonomy is right on paper. Reviewing what
+accumulates under `other` is how it grows: frequent entries get promoted into the
+enum. It is versioned so older conclusions stay interpretable.
 
 #### Weaknesses are counted, not stored
 

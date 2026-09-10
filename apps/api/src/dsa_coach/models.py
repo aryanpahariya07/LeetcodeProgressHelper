@@ -1031,8 +1031,16 @@ class AttemptConclusion(Base):
     approach_changed: Mapped[bool] = mapped_column(Boolean, default=False)
     converged_at_run: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    #: Closed vocabulary, versioned so old conclusions stay interpretable.
-    defects: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: `[{tag, detail}]` — a tag from the closed vocabulary, plus optional free
+    #: text. Versioned so old conclusions stay interpretable.
+    #:
+    #: `detail` is what makes `other` useful rather than a dustbin: the coach
+    #: says *what* it saw that the vocabulary could not express, and reviewing
+    #: what accumulates there is how the vocabulary grows. It is optional on
+    #: known tags too — "off_by_one_bounds" is more use with "in the while
+    #: condition" attached — but nothing ever parses it. Counting is done on
+    #: `tag` alone, which is exactly why `tag` has to stay closed.
+    defects: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     vocabulary_version: Mapped[str] = mapped_column(String(16), default="v1")
 
     confidence: Mapped[str] = mapped_column(String(8), default="low")
