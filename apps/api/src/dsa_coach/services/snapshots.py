@@ -13,6 +13,8 @@ grouping that survives both cases.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -23,10 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dsa_coach import tuning
 from dsa_coach.coach.conclusion_runtime import (
-    CodexConclusionRuntime,
     ConclusionOutcome,
     ConclusionRequest,
     SnapshotView,
+    build_conclusion_runtime,
 )
 from dsa_coach.coach.runtime import CoachFailure
 from dsa_coach.mechanism import defects as defect_vocab
@@ -44,6 +46,8 @@ from dsa_coach.models import (
     User,
 )
 from dsa_coach.services import consent as consent_service
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -316,7 +320,7 @@ async def conclude(
         )
     ).all()
 
-    runtime = runtime or CodexConclusionRuntime()
+    runtime = runtime or build_conclusion_runtime()
     outcome = await runtime.conclude(
         ConclusionRequest(
             problem_slug=problem.slug,
@@ -351,3 +355,91 @@ async def conclude(
 
     await session.flush()
     return outcome
+
+
+async def close_solved(
+    session: AsyncSession, user: User, attempt: Attempt
+) -> AttemptConclusion | None:
+    """Close the episode an accepted submission ends (spec §3.6).
+
+    Deterministic and fast, exactly like `abandon`. It creates the conclusion
+    row and attaches the snapshots; what the sequence *shows* is filled in
+    afterwards by `conclude`, which may be slow and may fail.
+
+    Splitting it this way is what keeps invariant 4: a submission is recorded
+    and its episode closed whether or not the coach is reachable, and a failed
+    conclusion leaves an empty row rather than an episode that reopens itself.
+
+    Returns None when there is nothing open — solving a problem with no captured
+    runs, which is the normal case without code-capture consent.
+    """
+    if attempt.submission_outcome is not SubmissionOutcome.ACCEPTED:
+        return None
+
+    snapshots = await open_episode(session, user, attempt.problem_id)
+    if not snapshots:
+        return None
+
+    conclusion = AttemptConclusion(
+        user_id=user.id,
+        problem_id=attempt.problem_id,
+        attempt_id=attempt.id,
+        outcome=EpisodeOutcome.SOLVED,
+        runs_before_pass=sum(1 for s in snapshots if s.kind is SnapshotKind.RUN),
+    )
+    session.add(conclusion)
+    await session.flush()
+
+    for snapshot in snapshots:
+        snapshot.conclusion_id = conclusion.id
+    await session.flush()
+    return conclusion
+
+
+async def conclude_later(user_id: uuid.UUID, conclusion_id: uuid.UUID) -> None:
+    """Run the conclusion in the background, in its own session.
+
+    Closing an episode is deterministic and fast; concluding is a Codex call
+    that can take tens of seconds. Doing them in one request would make
+    submitting a problem wait on a model, which is exactly what storing runs raw
+    was meant to avoid (spec §3.6).
+
+    Its own session, because the request's has already been committed and
+    returned by the time this runs. Failures are logged and go no further: the
+    episode is already closed, the evidence is already recorded, and a missing
+    conclusion is a gap rather than a fault (invariant 4).
+    """
+    from dsa_coach.db import get_session_factory
+
+    try:
+        async with get_session_factory()() as session:
+            row = await session.get(AttemptConclusion, conclusion_id)
+            if row is None or row.user_id != user_id:
+                return
+            user = await session.get(User, user_id)
+            if user is None:
+                return
+
+            outcome = await conclude(session, user, row)
+            await session.commit()
+
+            if outcome.conclusion is None:
+                logger.info("No conclusion for episode %s: %s", conclusion_id, outcome.error_detail)
+    except Exception:
+        logger.exception("Conclusion failed for episode %s", conclusion_id)
+
+
+def schedule_conclusion(conclusion: AttemptConclusion) -> None:
+    """Kick off `conclude_later` without waiting for it.
+
+    Fire-and-forget, with a reference held so the task is not garbage-collected
+    mid-flight — a detail asyncio does not protect you from.
+    """
+    task = asyncio.create_task(conclude_later(conclusion.user_id, conclusion.id))
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+
+
+#: Strong references to in-flight conclusions. Without this, asyncio may collect
+#: a running task and the conclusion silently never happens.
+_BACKGROUND: set[asyncio.Task[None]] = set()

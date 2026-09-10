@@ -322,3 +322,146 @@ class TestConclusionService:
         assert runtime.seen is not None
         assert runtime.seen.problem_slug == problem.slug
         assert len(runtime.seen.candidate_patterns) > 0
+
+
+class TestBothClosePathsConclude:
+    """A conclusion is produced on a solve *and* on an abandon (spec §3.6)."""
+
+    async def test_an_accepted_submission_closes_the_episode(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str], session: AsyncSession
+    ) -> None:
+        await onboarded.post("/consents/code-capture", json={"decision": "always"})
+        await onboarded.post(
+            "/extension/snapshots",
+            json={"snapshots": [snap(), snap(kind="submit")]},
+            headers=extension_auth,
+        )
+
+        await onboarded.post(
+            "/attempts",
+            json={
+                "event_uuid": str(uuid.uuid4()),
+                "problem_slug": "two-sum",
+                "submitted_at": NOW.isoformat(),
+                "resolution": "independent",
+                "submission_outcome": "accepted",
+            },
+        )
+
+        row = (await session.execute(select(AttemptConclusion))).scalar_one()
+        assert row.outcome.value == "solved"
+        assert row.attempt_id is not None
+        assert row.runs_before_pass == 1
+        assert (await onboarded.get("/progress/unfinished")).json() == []
+
+    async def test_a_failed_submission_leaves_the_episode_open(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str], session: AsyncSession
+    ) -> None:
+        # Failing is not finishing. The runs so far belong to the attempt that
+        # is still in progress, and concluding now would draw on half a story.
+        await onboarded.post("/consents/code-capture", json={"decision": "always"})
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+
+        await onboarded.post(
+            "/attempts",
+            json={
+                "event_uuid": str(uuid.uuid4()),
+                "problem_slug": "two-sum",
+                "submitted_at": NOW.isoformat(),
+                "resolution": "failed",
+                "submission_outcome": "wrong_answer",
+            },
+        )
+
+        assert (await session.execute(select(AttemptConclusion))).scalars().all() == []
+        assert len((await onboarded.get("/progress/unfinished")).json()) == 1
+
+    async def test_solving_with_no_captured_runs_concludes_nothing(
+        self, onboarded: AsyncClient, session: AsyncSession
+    ) -> None:
+        # The normal case without code-capture consent: an attempt is recorded,
+        # and there is simply no sequence to draw a conclusion from.
+        await onboarded.post(
+            "/attempts",
+            json={
+                "event_uuid": str(uuid.uuid4()),
+                "problem_slug": "two-sum",
+                "submitted_at": NOW.isoformat(),
+                "resolution": "independent",
+                "submission_outcome": "accepted",
+            },
+        )
+
+        assert (await session.execute(select(AttemptConclusion))).scalars().all() == []
+
+    async def test_abandoning_records_it_as_abandoned_not_solved(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str], session: AsyncSession
+    ) -> None:
+        # The two outcomes are opposite conclusions from identical data, so the
+        # row has to say which happened.
+        await abandoned_episode(onboarded, extension_auth)
+
+        row = (await session.execute(select(AttemptConclusion))).scalar_one()
+        assert row.outcome.value == "abandoned"
+        assert row.attempt_id is None
+
+    async def test_a_second_episode_concludes_separately(
+        self, onboarded: AsyncClient, extension_auth: dict[str, str], session: AsyncSession
+    ) -> None:
+        # Abandon, come back, solve it. Two episodes, two conclusions, and the
+        # second must not draw on the first one's runs.
+        await abandoned_episode(onboarded, extension_auth)
+        await onboarded.post(
+            "/extension/snapshots", json={"snapshots": [snap()]}, headers=extension_auth
+        )
+        await onboarded.post(
+            "/attempts",
+            json={
+                "event_uuid": str(uuid.uuid4()),
+                "problem_slug": "two-sum",
+                "submitted_at": NOW.isoformat(),
+                "resolution": "independent",
+                "submission_outcome": "accepted",
+            },
+        )
+
+        rows = (await session.execute(select(AttemptConclusion))).scalars().all()
+        outcomes = sorted(r.outcome.value for r in rows)
+        assert outcomes == ["abandoned", "solved"]
+        assert [r.runs_before_pass for r in rows if r.outcome.value == "solved"] == [1]
+
+
+class TestRuntimeSelection:
+    """The conclusion path must respect `coach_runtime` (spec §2)."""
+
+    def test_stub_selects_no_conclusion_runtime(self) -> None:
+        # The conclusion runs in a background task, so a runtime that reached
+        # for Codex regardless would have every test in this repo quietly
+        # attempting a real call — which is exactly what happened before this.
+        from dsa_coach.coach.conclusion_runtime import (
+            NoConclusionRuntime,
+            build_conclusion_runtime,
+        )
+        from dsa_coach.config import Settings
+
+        runtime = build_conclusion_runtime(Settings(coach_runtime="stub"))
+
+        assert isinstance(runtime, NoConclusionRuntime)
+
+    async def test_the_stand_in_concludes_nothing_and_says_so(self) -> None:
+        # There is no arithmetic substitute for reading code, so it reports
+        # unavailability rather than inventing an empty conclusion.
+        from dsa_coach.coach.conclusion_runtime import NoConclusionRuntime
+
+        outcome = await NoConclusionRuntime().conclude(request())
+
+        assert outcome.conclusion is None
+        assert outcome.failure is CoachFailure.UNAVAILABLE
+
+    def test_codex_is_selected_when_configured(self) -> None:
+        from dsa_coach.coach.conclusion_runtime import build_conclusion_runtime
+        from dsa_coach.config import Settings
+
+        assert build_conclusion_runtime(Settings(coach_runtime="codex")).name == "codex"

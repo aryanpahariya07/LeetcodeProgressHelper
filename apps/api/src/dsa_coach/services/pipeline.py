@@ -24,6 +24,7 @@ from dsa_coach.mechanism.evidence import counted_attempt_index
 from dsa_coach.models import Attempt, TriggerBatch, User
 from dsa_coach.services import readiness as readiness_service
 from dsa_coach.services import retention as retention_service
+from dsa_coach.services import snapshots as snapshot_service
 from dsa_coach.services import triggers as trigger_service
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,14 @@ async def process_attempt(session: AsyncSession, user: User, attempt: Attempt) -
 
     evidence = await readiness_service.apply_attempt(session, user, attempt)
     batch = await trigger_service.evaluate_if_due(session, user)
+
+    # An accepted submission ends the episode (spec §3.6). Closing it is
+    # deterministic and happens here; asking the coach what the run sequence
+    # shows is slow and happens afterwards, so submitting never waits on a
+    # model and works with the provider down.
+    closed = await snapshot_service.close_solved(session, user, attempt)
+    if closed is not None:
+        snapshot_service.schedule_conclusion(closed)
 
     return ProcessingResult(
         counted_as_evidence=evidence is not None,

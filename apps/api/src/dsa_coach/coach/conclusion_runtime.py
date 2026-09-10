@@ -359,3 +359,45 @@ def _usage(result: Any) -> dict[str, Any]:
         "output_tokens": getattr(total, "output_tokens", None),
         "total_tokens": getattr(total, "total_tokens", None),
     }
+
+
+class NoConclusionRuntime:
+    """The deterministic stand-in, selected when no provider is configured.
+
+    There is no arithmetic substitute for reading someone's code, so unlike the
+    prescription stub this one concludes nothing — it reports that the coach was
+    unavailable and stops. That is a supported outcome: the episode is already
+    closed and the evidence already recorded, so a missing conclusion is a gap
+    rather than a failure (invariant 4).
+    """
+
+    name = "none"
+
+    async def conclude(self, request: ConclusionRequest) -> ConclusionOutcome:
+        return ConclusionOutcome(
+            failure=CoachFailure.UNAVAILABLE,
+            error_detail="No conclusion runtime is configured.",
+        )
+
+
+def build_conclusion_runtime(settings: Any = None) -> Any:
+    """The conclusion runtime for this deployment.
+
+    Mirrors `build_runtime` for prescriptions, and reads the same
+    `coach_runtime` setting — which is what keeps the test suite offline. The
+    conclusion path runs in a background task, so a runtime that reached for
+    Codex regardless would have every test quietly attempting a real call.
+    """
+    from dsa_coach.config import get_settings
+
+    settings = settings or get_settings()
+    if settings.coach_runtime.strip().lower() != "codex":
+        return NoConclusionRuntime()
+
+    try:
+        import openai_codex  # noqa: F401
+    except ImportError:
+        logger.warning("openai-codex is not installed; conclusions are unavailable.")
+        return NoConclusionRuntime()
+
+    return CodexConclusionRuntime(model=settings.coach_model)

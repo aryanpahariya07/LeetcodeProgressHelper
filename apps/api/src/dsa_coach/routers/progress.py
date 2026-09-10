@@ -213,6 +213,12 @@ async def abandon_problem(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Nothing in progress for that problem.",
         )
+
+    # Same split as the solved path: the episode is closed synchronously, and
+    # what the runs show is worked out afterwards. Giving up therefore never
+    # waits on a model, and returns immediately even with the coach down.
+    snapshot_service.schedule_conclusion(conclusion)
+
     return AbandonResultOut(
         problem_id=problem_id,
         conclusion_id=conclusion.id,
