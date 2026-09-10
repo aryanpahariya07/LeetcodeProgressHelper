@@ -230,6 +230,140 @@ should not, ask for it. **Recover it from static analysis of the submitted code 
 diagnosis feature (§7.3) instead**, so the "it passed but the complexity was wrong"
 signal survives without user burden.
 
+### 3.6 Run snapshots and the attempt conclusion
+
+The questionnaire is gone (§3.2) and `blocker` is left null. This is what fills it —
+and it produces a better answer than the questionnaire ever did, because "I was too
+slow" and "I never saw the pattern" look identical from the outside and completely
+different in the source.
+
+#### What is captured, and when
+
+Every Run and Submit sends `typed_code`; the extension already observes both
+(§4.2). Each is stored **raw and unprocessed**:
+
+```
+Run 1   → snapshot stored. nothing else.
+Run 2   → snapshot stored. nothing else.
+Submit  → snapshot stored. rejected.
+Submit  → snapshot stored. ACCEPTED
+             ↓
+      one Codex call over the whole sequence
+             ↓
+      one AttemptConclusion
+```
+
+**No AI call happens during practice.** Nothing interrupts, nothing waits on a model,
+and a provider outage costs nothing but a delayed conclusion.
+
+The *sequence* is the point. Final code alone cannot distinguish going straight to
+the optimal approach from brute-forcing and then rewriting after a TLE, or a clean
+solve from fixing the same off-by-one four times. Those are different skills with the
+same final source, and the runs are direct evidence of which happened — the thing
+`blocker` was always trying and failing to capture from recollection.
+
+#### When it is processed
+
+On the accepting submission, **or on abandonment**. Problems you never solve are the
+most diagnostic attempts there are, and processing only on success would leave them
+sitting unread forever.
+
+Abandonment is not inferred from a timer. Problems with at least one run and no
+accepted submission are **listed in the web app** as unfinished, where they are
+visible rather than quietly swept up. Processing happens when one is solved, or when
+it is dismissed from that list.
+
+#### The conclusion
+
+Few fields, long vocabulary. That is the shape, and it is deliberate: an elaborate
+*structure* invites the model to fill fields arbitrarily to satisfy a schema, while an
+elaborate *vocabulary* is what makes observations countable.
+
+```
+AttemptConclusion                  # one per attempt, derived from the run sequence
+  attempt_id
+
+  patterns_used         [{pattern_id, used: bool, confidence}]
+  blocker_observed      Blocker | null      # the existing seven-value enum
+  final_complexity      Complexity          # mechanism/complexity.py
+  runs_before_pass      int
+  approach_changed      bool                # brute force → optimal, or thrashing
+  converged_at_run      int | null
+  defects               [DefectTag]         # closed vocabulary
+  confidence            low | medium | high
+  notes                 str                 # free text, never read by code
+```
+
+`optimal_complexity` is **not** here. It is a property of the *problem*, not of the
+attempt, and belongs in the catalogue (§11) — deriving it per attempt would have the
+model re-guess it inconsistently every time and store the guess as fact.
+
+`patterns_used` is the correction that matters most. Readiness currently credits
+patterns from the catalogue's tags on the problem, so solving `two-sum` with nested
+loops raises your hash-map readiness on evidence that does not exist.
+
+#### DefectTag: closed, versioned, countable
+
+The model picks from the list or says `other`. It **cannot** invent a tag — if it
+could, nothing could be counted, and the whole scheme collapses back into prose.
+
+Roughly 30–50 values across correctness (`off_by_one_bounds`,
+`empty_input_unhandled`, `integer_overflow`), structure choice
+(`nested_loop_where_hash`, `sort_where_heap_suffices`, `repeated_recomputation_no_memo`),
+pattern application (`visited_set_missing`, `window_shrink_wrong`), and process
+signals only the sequence reveals (`thrashing_no_hypothesis`, `premature_submission`).
+
+The vocabulary will be wrong at first — no taxonomy is right on paper. `other` carries
+free text, what accumulates there is reviewed periodically, and frequent entries are
+promoted into the enum. The vocabulary is versioned so older conclusions stay
+interpretable.
+
+#### Weaknesses are counted, not stored
+
+**A weakness is not an observation. It is an aggregate over observations**, and
+storing "your weakness is X" per attempt would have the model re-decide it from a
+single data point, in different words each time.
+
+| Layer | Holds |
+| --- | --- |
+| Evidence | *"This attempt used a nested loop where a hash map was optimal."* |
+| Mechanism | *"That has happened in 6 of your last 9 attempts."* — a plain query |
+| Judgment | Produces the observation. **Never** the aggregate. |
+
+So a weakness is a query, not a record: `off_by_one_bounds` in 6 of the last 9
+binary-search attempts. Countable, trendable, falsifiable — and it reaches the coach
+as three lines of aggregate in `CoachContext`, never as raw code or individual
+conclusions.
+
+#### Invariant 1, and why this does not violate it
+
+A conclusion is **judgment, not evidence**. It is stored in its own table, marked
+derived, and carries a confidence that weights how far it moves anything — exactly as
+`capture_confidence` already discounts a shaky capture. It never overwrites an
+attempt, and it never becomes a catalogue fact.
+
+This matters most for `patterns_used`. Today's bug is over-crediting; a wrong "you
+did not use a hash map" introduces the opposite error, suppressing readiness on
+false evidence. So a single low-confidence judgement must not fully override the
+catalogue.
+
+#### Retention
+
+Raw snapshots are kept **30 days**, then deleted; the conclusion persists. Discarding
+them immediately would be a one-way door — an improved extraction prompt could never
+be applied to attempts already processed.
+
+All of it sits under code-capture consent (§8, invariant 9). No consent, no snapshots,
+no conclusions, and `blocker` simply stays null.
+
+#### Prerequisites
+
+- **Readiness recompute** (§3.3) — *done*. Without it a conclusion arriving after
+  readiness was applied could never correct it.
+- **Catalogue `optimal_complexity`** — not yet present.
+- **Cost.** One Codex call per solved problem, with every snapshot in the payload.
+  Under a ChatGPT plan that is a real rate-limit budget, not a rounding error.
+
 ---
 
 ## 4. Chrome extension (MVP — Phase 2)
@@ -965,6 +1099,20 @@ interview, code-capture consent flow.
 **Exit:** hints never leak the next level; diagnosis cites only real attempts;
 diagnosis works in degraded mode without code consent; consent is recorded and
 revocable, and revocation deletes stored code.
+
+### Phase 5b — Run snapshots and conclusions (§3.6)
+Snapshot capture on every Run and Submit, the conclusion pipeline, the closed
+`DefectTag` vocabulary, the unfinished-problems list in the web app, and 30-day raw
+retention. All under code-capture consent (§8).
+
+Depends on readiness recompute (§3.3), which is done, and on `optimal_complexity`
+reaching the catalogue (§11), which is not.
+
+**Exit:** a solved problem produces exactly one conclusion; `blocker` is populated
+from the code rather than left null; `patterns_used` corrects catalogue-derived
+credit rather than overriding it outright; a weakness is answerable as a count over
+`DefectTag` rather than stored anywhere as prose; and revoking code-capture consent
+stops snapshots at the source.
 
 ### Phase 6 — Reconciliation and hardening
 Optional public-profile sync, extension/profile deduplication, calibration report,
