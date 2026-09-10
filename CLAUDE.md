@@ -131,7 +131,7 @@ npm run typecheck
 # --- extension (from apps/extension) ---
 npm install
 npm run dev                                      # load .output/chrome-mv3 unpacked
-npm test                                         # test         (102 tests)
+npm test                                         # test         (112 tests)
 npm run lint
 npm run typecheck
 npm run build

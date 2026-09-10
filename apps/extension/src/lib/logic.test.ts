@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LeetCodeAdapter, matchLanguage, matchOutcome } from "../adapters/leetcode/adapter";
 import { accountTime, type TimelineEvent } from "./activeTime";
 import { delayFor, isRetryable, MAX_ATTEMPTS, shouldRetry } from "./backoff";
+import { shouldCapture, stateAfterHealth } from "./monitoring";
 import {
   buildAttemptEvent,
   emptySession,
@@ -569,5 +570,56 @@ describe("run counting", () => {
     ]);
 
     expect(buildAttemptEvent(state, { eventUuid: "x" })?.run_count).toBe(2);
+  });
+});
+
+describe("monitoring state (spec §4.3)", () => {
+  describe("what still gets captured", () => {
+    it("records while degraded", () => {
+      // The bug that discarded every attempt for a day. `degraded` means the
+      // adapter could not find an anchor, so the event goes out with
+      // capture_confidence: low — which §4.3 requires, in as many words:
+      // degrade "rather than silently capturing nothing".
+      expect(shouldCapture("degraded")).toBe(true);
+    });
+
+    it("records while monitoring", () => {
+      expect(shouldCapture("monitoring")).toBe(true);
+    });
+
+    it.each(["paused", "disconnected"] as const)("does not record while %s", (state) => {
+      // These are decisions the user made. Honour them.
+      expect(shouldCapture(state)).toBe(false);
+    });
+  });
+
+  describe("degradation is reversible", () => {
+    it("degrades when the adapter cannot find its anchors", () => {
+      expect(stateAfterHealth("monitoring", false)).toBe("degraded");
+    });
+
+    it("recovers when the adapter works again", () => {
+      // Without this, one health check failing on a page where the console had
+      // not rendered yet left the extension degraded forever — no route back
+      // short of re-pairing.
+      expect(stateAfterHealth("degraded", true)).toBe("monitoring");
+    });
+
+    it("stays degraded while still unhealthy", () => {
+      expect(stateAfterHealth("degraded", false)).toBe("degraded");
+    });
+
+    it.each(["paused", "disconnected"] as const)(
+      "never overrides %s in either direction",
+      (state) => {
+        // A health check does not get to undo a user's choice.
+        expect(stateAfterHealth(state, true)).toBe(state);
+        expect(stateAfterHealth(state, false)).toBe(state);
+      },
+    );
+
+    it("is idempotent for a healthy monitoring extension", () => {
+      expect(stateAfterHealth("monitoring", true)).toBe("monitoring");
+    });
   });
 });

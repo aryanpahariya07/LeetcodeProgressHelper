@@ -8,6 +8,7 @@
 
 import { sendBatch } from "../src/lib/api";
 import { delayFor, shouldRetry } from "../src/lib/backoff";
+import { shouldCapture, stateAfterHealth } from "../src/lib/monitoring";
 import * as store from "../src/lib/storage";
 import type { AttemptEvent, ExtensionStatus } from "../src/lib/types";
 
@@ -38,9 +39,20 @@ async function handleMessage(message: Message): Promise<unknown> {
   switch (message.type) {
     case "capture": {
       const config = await store.getConfig();
-      // Paused and disconnected both mean "do not record". Dropping it here
-      // rather than in the content script keeps one source of truth.
-      if (config.state !== "monitoring") return { queued: false, reason: config.state };
+      // Only a *decision* not to record blocks capture: paused and disconnected
+      // are things the user chose. Dropping here rather than in the content
+      // script keeps one source of truth.
+      //
+      // `degraded` deliberately still records. It means the adapter could not
+      // find some anchor, so the event carries `capture_confidence: low` and
+      // omits what could not be read — which is worth far more than nothing at
+      // all, and is what spec §4.3 requires: degrade "rather than silently
+      // capturing nothing". A `!== "monitoring"` check here did the opposite,
+      // and one transient health blip in a degraded state discarded every
+      // attempt made afterwards.
+      if (!shouldCapture(config.state)) {
+        return { queued: false, reason: config.state };
+      }
       await store.enqueue({
         event: message.event,
         queuedAt: Date.now(),
@@ -53,11 +65,9 @@ async function handleMessage(message: Message): Promise<unknown> {
 
     case "adapter_health": {
       await store.setStatus({ adapterHealthy: message.healthy });
-      if (!message.healthy) {
-        const config = await store.getConfig();
-        // Surface the breakage instead of silently recording nothing (spec §4.3).
-        if (config.state === "monitoring") await store.setConfig({ state: "degraded" });
-      }
+      const config = await store.getConfig();
+      const next = stateAfterHealth(config.state, message.healthy);
+      if (next !== config.state) await store.setConfig({ state: next });
       return { ok: true };
     }
 
