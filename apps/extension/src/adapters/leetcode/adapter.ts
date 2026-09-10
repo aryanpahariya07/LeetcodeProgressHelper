@@ -42,12 +42,35 @@ export interface AdapterHealth {
   missing: string[];
 }
 
+/**
+ * Which surface a verdict came from — and therefore whether it is an attempt.
+ *
+ * This distinction is load-bearing. Pressing **Run** judges your code against
+ * the sample cases and prints a verdict into the console panel; pressing
+ * **Submit** judges it against the full suite and prints one into the
+ * submission panel. They read identically ("Accepted", "Wrong Answer"), and
+ * treating a Run verdict as a submission records an attempt that never
+ * happened (invariant 5) *and* wipes the session, so the runs leading up to
+ * the real submission are lost with it.
+ *
+ * - `submission` — Submit's own panel. A genuine attempt.
+ * - `console` — Run's output. Not an attempt.
+ * - `unknown` — matched by the fallback text scan, which cannot tell them
+ *   apart. The caller decides, using the observed request kind (`network.ts`).
+ */
+export type VerdictSource = "submission" | "console" | "unknown";
+
+export interface VerdictObservation {
+  outcome: Observed<SubmissionOutcome>;
+  source: VerdictSource;
+}
+
 export interface ProblemPageAdapter {
   readonly id: string;
   isProblemPage(url: string): boolean;
   problemSlug(url: string): Observed<string>;
   language(root: ParentNode): Observed<string>;
-  submissionOutcome(root: ParentNode): Observed<SubmissionOutcome>;
+  submissionOutcome(root: ParentNode): VerdictObservation;
   checkHealth(root: ParentNode): AdapterHealth;
 }
 
@@ -79,9 +102,9 @@ const OUTCOME_TEXT: Array<[string, SubmissionOutcome]> = [
  * Nothing speculative belongs in this list. A selector nobody has seen is not a
  * safety net, it is noise that outlives the reason it was added.
  */
-const RESULT_SELECTORS = [
-  '[data-e2e-locator="submission-result"]',
-  '[data-e2e-locator="console-result"]',
+const RESULT_SELECTORS: Array<[string, VerdictSource]> = [
+  ['[data-e2e-locator="submission-result"]', "submission"],
+  ['[data-e2e-locator="console-result"]', "console"],
 ];
 
 /**
@@ -181,11 +204,11 @@ export class LeetCodeAdapter implements ProblemPageAdapter {
     return { value: null, confidence: "low" };
   }
 
-  submissionOutcome(root: ParentNode): Observed<SubmissionOutcome> {
-    for (const selector of RESULT_SELECTORS) {
+  submissionOutcome(root: ParentNode): VerdictObservation {
+    for (const [selector, source] of RESULT_SELECTORS) {
       const text = textOf(root.querySelector(selector));
       const matched = matchOutcome(text);
-      if (matched) return observed(matched, "high");
+      if (matched) return { outcome: observed(matched, "high"), source };
     }
 
     // Scan the console panel only — never the whole document. A problem page
@@ -199,11 +222,11 @@ export class LeetCodeAdapter implements ProblemPageAdapter {
         const matched = matchOutcome(text);
         // Medium: the region is right, but the exact element is not identified,
         // so a verdict left over from an earlier submission is possible.
-        if (matched) return observed(matched, "medium");
+        if (matched) return { outcome: observed(matched, "medium"), source: "unknown" };
       }
     }
 
-    return { value: null, confidence: "low" };
+    return { outcome: { value: null, confidence: "low" }, source: "unknown" };
   }
 
   checkHealth(root: ParentNode): AdapterHealth {

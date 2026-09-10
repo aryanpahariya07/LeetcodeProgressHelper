@@ -18,6 +18,7 @@ import { leetcodeAdapter } from "../src/adapters/leetcode/adapter";
 import {
   NETWORK_MESSAGE,
   type ObservedSubmission,
+  type SubmissionKind,
 } from "../src/adapters/leetcode/network";
 import {
   buildAttemptEvent,
@@ -76,6 +77,9 @@ function start(): void {
 
   const adapter = leetcodeAdapter;
   let lastOutcomeText = "";
+  /// The kind of the last Run/Submit request seen, used to attribute a verdict
+  /// the adapter could not place. Null until the network observer reports one.
+  let lastRequestKind: SubmissionKind | null = null;
 
   const openCurrentProblem = (): void => {
     const url = location.href;
@@ -135,6 +139,9 @@ function start(): void {
       // Authoritative: LeetCode is telling us what it is about to compile.
       dispatch({ type: "language", language: observed(data.lang, "high") });
     }
+    // Remembered so an ambiguous verdict can be attributed. A verdict the
+    // adapter cannot place belongs to whichever request was last sent.
+    lastRequestKind = data.kind;
     if (data.kind === "run") {
       dispatch({ type: "run", at: data.at });
     }
@@ -162,17 +169,32 @@ function start(): void {
   };
 
   observer = new MutationObserver(() => {
-    const observation = adapter.submissionOutcome(document);
-    if (!observation.value) return;
+    const { outcome, source } = adapter.submissionOutcome(document);
+    if (!outcome.value) return;
 
     // The result panel persists after a submission, so the same verdict would
     // fire on every subsequent mutation. Only a *change* counts as new.
-    const signature = `${observation.value}:${observation.confidence}`;
+    const signature = `${outcome.value}:${outcome.confidence}:${source}`;
     if (signature === lastOutcomeText) return;
     lastOutcomeText = signature;
 
-    dispatch({ type: "submit", observation: { outcome: observation, at: Date.now() } });
-    void finish(observation.value);
+    // A Run prints a verdict too, in a different panel, worded identically.
+    // Recording it as a submission invents an attempt that never happened
+    // (invariant 5) — and, worse, `finish` then resets the session, so the runs
+    // leading up to the real submission are destroyed along with it. That is
+    // why `run_count` was always zero and why one problem produced an attempt
+    // per Run.
+    //
+    // `unknown` means the fallback text scan matched and cannot tell the
+    // panels apart; the last observed request decides. If the network observer
+    // never reported anything either, fall through to treating it as a
+    // submission — the previous behaviour, and the safer default for the case
+    // where the observer is broken but the DOM still works.
+    if (source === "console") return;
+    if (source === "unknown" && lastRequestKind === "run") return;
+
+    dispatch({ type: "submit", observation: { outcome, at: Date.now() } });
+    void finish(outcome.value);
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
