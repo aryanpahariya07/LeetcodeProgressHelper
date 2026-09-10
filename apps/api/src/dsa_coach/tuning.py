@@ -26,6 +26,11 @@ PROVISIONAL_MINUTES_BY_DIFFICULTY: dict[Difficulty, int] = {
     Difficulty.HARD: 55,
 }
 
+# Used only for an uncatalogued problem, whose difficulty was never observed.
+# The middle estimate, because with nothing known there is no reason to guess
+# high or low — and it is a display figure, never an input to readiness.
+PROVISIONAL_MINUTES_DEFAULT: int = 35
+
 # How many days of practice the provisional plan materialises up front.
 #
 # Hypothesis: one week is enough to feel like a real plan without pretending to
@@ -98,6 +103,12 @@ PROVISIONAL_PROBLEMS_PER_PATTERN: int = 2
 # problems get a low RD and these stay high until re-sourced.
 MANUAL_RATING_RD: int = 300
 CONTEST_RATING_RD: int = 75
+
+# A problem seen in the wild but absent from the catalogue, so carrying no rating
+# at all. The RD is maximal because the uncertainty is total — this is not a wide
+# estimate, it is the absence of one. Nothing actually reads such a problem's
+# rating (it is null), so this exists to make the intent legible in the row.
+UNRATED_RATING_RD: int = 350
 
 
 # ============================================================ PHASE 1: MECHANISM

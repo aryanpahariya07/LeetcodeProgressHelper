@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dsa_coach.models import Attempt, AttemptEvent, AttemptSource, ProcessingStatus
+from dsa_coach.models import Attempt, AttemptEvent, AttemptSource, Problem, ProcessingStatus
 
 
 def _event(slug: str = "two-sum", **overrides: object) -> dict[str, object]:
@@ -54,15 +54,26 @@ class TestManualLogging:
         attempt = (await session.execute(select(Attempt))).scalar_one()
         assert attempt.source is AttemptSource.MANUAL
 
-    async def test_unknown_problem_is_invalid_not_invented(
+    async def test_unknown_problem_is_recorded_without_inventing_metadata(
         self, onboarded: AsyncClient, session: AsyncSession
     ) -> None:
-        """Invariant 5: never fabricate problem metadata."""
+        """Invariant 5, without discarding the evidence to satisfy it.
+
+        This used to reject the attempt outright, which honoured invariant 5 by
+        throwing away a fact. The attempt happened; only the rating is unknown.
+        So the attempt is stored and the rating stays null — see
+        tests/test_uncatalogued.py for what that then does to the estimate.
+        """
         response = await onboarded.post("/attempts", json=_event(slug="not-a-real-problem"))
 
-        assert response.json()["status"] == "invalid"
-        assert "Unknown problem" in response.json()["error"]
-        assert await _attempt_count(session) == 0
+        assert response.json()["status"] == "accepted"
+        assert await _attempt_count(session) == 1
+
+        problem = (
+            await session.execute(select(Problem).where(Problem.slug == "not-a-real-problem"))
+        ).scalar_one()
+        assert problem.rating is None
+        assert problem.is_active is False
 
     async def test_dismissed_questionnaire_is_recorded_as_unknown(
         self, onboarded: AsyncClient, session: AsyncSession
@@ -88,21 +99,26 @@ class TestIdempotency:
         assert second.json()["attempt_id"] == first.json()["attempt_id"]
         assert await _attempt_count(session) == 1
 
-    async def test_replaying_an_invalid_event_stays_deduplicated(
+    async def test_replaying_an_uncatalogued_event_stays_deduplicated(
         self, onboarded: AsyncClient, session: AsyncSession
     ) -> None:
-        """Invalid events are recorded too, so a replay is still a no-op."""
+        """Every inbound event is recorded, so a replay is still a no-op.
+
+        Uncatalogued problems are the path that used to produce `invalid`. They
+        are accepted now, and the idempotency guarantee has to survive that:
+        creating the placeholder problem must not make a replayed event look new.
+        """
         event = _event(slug="does-not-exist")
 
         first = await onboarded.post("/attempts", json=event)
         second = await onboarded.post("/attempts", json=event)
 
-        assert first.json()["status"] == "invalid"
+        assert first.json()["status"] == "accepted"
         assert second.json()["status"] == "duplicate"
 
         events = (await session.execute(select(AttemptEvent))).scalars().all()
         assert len(events) == 1
-        assert events[0].processing_status is ProcessingStatus.INVALID
+        assert events[0].processing_status is ProcessingStatus.PROCESSED
 
     async def test_same_problem_different_event_uuid_is_a_new_attempt(
         self, onboarded: AsyncClient, session: AsyncSession
@@ -140,13 +156,15 @@ class TestExtensionBatch:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["received"] == 4
-        assert body["accepted"] == 2
+        # An uncatalogued slug is accepted now rather than rejected, so the
+        # only non-accepted result left is the genuine replay. Per-event
+        # independence is what this asserts, not the specific mix.
+        assert body["accepted"] == 3
         assert body["duplicates"] == 1
-        assert body["invalid"] == 1
         assert [r["status"] for r in body["results"]] == [
             "accepted",
             "duplicate",
-            "invalid",
+            "accepted",
             "accepted",
         ]
 
@@ -156,11 +174,19 @@ class TestExtensionBatch:
         session: AsyncSession,
         extension_auth: dict[str, str],
     ) -> None:
-        batch = {"events": [_event("two-sum"), _event("nope"), _event("3sum")]}
+        # A malformed payload rather than an unknown slug: unknown slugs are a
+        # normal, accepted case now, so they no longer exercise savepoint
+        # isolation. A duplicate does — it fails partway and must not take the
+        # rest of the batch down with it.
+        shared = _event("valid-parentheses")
+        await onboarded.post("/attempts", json=shared)
+
+        batch = {"events": [_event("two-sum"), shared, _event("3sum")]}
 
         await onboarded.post("/extension/events/batch", json=batch, headers=extension_auth)
 
-        assert await _attempt_count(session) == 2
+        # The two new ones landed; the replay did not roll them back.
+        assert await _attempt_count(session) == 3
 
     async def test_batch_events_are_recorded_as_extension_source(
         self,

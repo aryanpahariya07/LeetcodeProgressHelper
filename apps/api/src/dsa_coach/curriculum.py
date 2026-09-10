@@ -35,6 +35,7 @@ from dsa_coach.tuning import (
     CURRICULUM_BY_LEVEL,
     PROVISIONAL_BUDGET_FILL,
     PROVISIONAL_MINUTES_BY_DIFFICULTY,
+    PROVISIONAL_MINUTES_DEFAULT,
     PROVISIONAL_PLAN_DAYS,
     PROVISIONAL_PROBLEMS_PER_PATTERN,
 )
@@ -76,7 +77,9 @@ async def select_curriculum_problems(session: AsyncSession, level: Level) -> lis
             candidates.append(
                 _Candidate(
                     problem_id=problem.id,
-                    minutes=PROVISIONAL_MINUTES_BY_DIFFICULTY[problem.difficulty],
+                    minutes=PROVISIONAL_MINUTES_BY_DIFFICULTY[problem.difficulty]
+                    if problem.difficulty is not None
+                    else PROVISIONAL_MINUTES_DEFAULT,
                     pattern_slug=slug,
                 )
             )

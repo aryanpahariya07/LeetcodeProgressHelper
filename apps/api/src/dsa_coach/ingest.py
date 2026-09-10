@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dsa_coach import tuning
 from dsa_coach.models import (
     Attempt,
     AttemptEvent,
@@ -25,6 +26,7 @@ from dsa_coach.models import (
     CaptureConfidence,
     Problem,
     ProcessingStatus,
+    RatingSource,
     User,
 )
 from dsa_coach.schemas import AttemptEventIn, EventResultOut
@@ -76,19 +78,24 @@ async def _ingest_one(
 
     problem = await _resolve_problem(session, event.provider, event.problem_slug)
     if problem is None:
-        # Not in the catalogue. Recorded as invalid rather than guessed at
-        # (invariant 5) — and still deduplicated on replay.
-        error = f"Unknown problem: {event.provider}/{event.problem_slug}"
-        await _record_event(
-            session,
-            user=user,
-            event=event,
-            device_id=device_id,
-            status=ProcessingStatus.INVALID,
-            attempt_id=None,
-            error=error,
-        )
-        return EventResultOut(event_uuid=event.event_uuid, status="invalid", error=error)
+        # Not in the catalogue — which is the normal case, not an error. The
+        # seeded catalogue holds a few dozen problems; LeetCode has thousands.
+        #
+        # This used to be recorded `invalid` and the evidence discarded. That
+        # silently threw away most real practice: a rejected event is dropped
+        # from the extension's queue and surfaced nowhere, so attempts simply
+        # vanished with no signal anywhere in the product.
+        #
+        # The attempt happened, so it is a fact and is stored. The rating and
+        # difficulty did not become known, so they stay null rather than being
+        # guessed (invariant 5) — which is exactly what keeps this honest. An
+        # unrated problem is inactive, so the scheduler never offers it, and the
+        # readiness models skip it for want of a reference rating.
+        #
+        # Enriching the catalogue later makes these count retroactively:
+        # `recompute` replays every attempt, so evidence recorded today starts
+        # contributing the moment its problem gains a rating.
+        problem = await _create_unrated_problem(session, event.provider, event.problem_slug)
 
     try:
         async with session.begin_nested():
@@ -123,6 +130,35 @@ async def _find_event(session: AsyncSession, event_uuid: uuid.UUID) -> AttemptEv
     return (
         await session.execute(select(AttemptEvent).where(AttemptEvent.event_uuid == event_uuid))
     ).scalar_one_or_none()
+
+
+async def _create_unrated_problem(session: AsyncSession, provider: str, slug: str) -> Problem:
+    """A placeholder for a problem seen in the wild but absent from the catalogue.
+
+    Everything recorded here is *observed*: the provider, the slug, and the URL
+    those two imply. Nothing is inferred. `rating` and `difficulty` stay null
+    because they were never observed, and `is_active` is false so the scheduler
+    cannot offer a problem it knows nothing about.
+
+    The title falls back to the slug rather than being left blank — it is the
+    only human-readable name available, and it is not a claim about anything.
+    """
+    problem = Problem(
+        provider=provider,
+        external_id=slug,
+        slug=slug,
+        title=slug.replace("-", " ").title(),
+        url=f"https://leetcode.com/problems/{slug}/",
+        difficulty=None,
+        rating=None,
+        rating_rd=tuning.UNRATED_RATING_RD,
+        rating_source=RatingSource.MANUAL,
+        catalogue_source_id=None,
+        is_active=False,
+    )
+    session.add(problem)
+    await session.flush()
+    return problem
 
 
 async def _resolve_problem(session: AsyncSession, provider: str, slug: str) -> Problem | None:

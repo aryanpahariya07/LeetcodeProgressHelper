@@ -42,7 +42,11 @@ async def process_attempt(session: AsyncSession, user: User, attempt: Attempt) -
     retention = await retention_service.apply_attempt(session, user, attempt)
 
     facts = await readiness_service.build_facts(session, user, attempt)
-    already_counted = not attempt.is_resolve and counted_attempt_index(facts) is None
+    # No facts means the problem carries no rating, so the attempt cannot count
+    # toward the three-attempt trigger either.
+    already_counted = (
+        not attempt.is_resolve and facts is not None and counted_attempt_index(facts) is None
+    )
 
     relevant = trigger_service.mark_relevance(
         attempt,

@@ -159,6 +159,11 @@ async def build_next_block(
         tags = problem_patterns.get(problem.id, {})
         if not tags:
             continue
+        # Uncatalogued: seen in the wild, never rated, so there is nothing to
+        # schedule it against. `is_active` already excludes these from the query
+        # above; this is the belt to that pair of braces.
+        if problem.rating is None:
+            continue
 
         reference = ProblemRef(problem.rating, problem.rating_rd)
         score = _predicted(model, states, tags, reference, goal)

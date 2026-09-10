@@ -259,10 +259,14 @@ class Problem(Base):
     slug: Mapped[str] = mapped_column(String(200))
     title: Mapped[str] = mapped_column(String(300))
     url: Mapped[str] = mapped_column(String(500))
-    difficulty: Mapped[Difficulty] = mapped_column(_enum(Difficulty, "difficulty"))
+    # Null for a problem seen in the wild but absent from the catalogue: the
+    # attempt is a fact, its metadata is genuinely unknown (invariant 5).
+    difficulty: Mapped[Difficulty | None] = mapped_column(
+        _enum(Difficulty, "difficulty"), nullable=True
+    )
     # Numeric rating on an Elo-like scale. `rating_rd` is its uncertainty:
     # manual estimates carry a deliberately high RD (spec §6.2, §11).
-    rating: Mapped[int] = mapped_column(Integer)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rating_rd: Mapped[int] = mapped_column(Integer, default=350)
     rating_source: Mapped[RatingSource] = mapped_column(_enum(RatingSource, "rating_source"))
     catalogue_source_id: Mapped[uuid.UUID | None] = mapped_column(

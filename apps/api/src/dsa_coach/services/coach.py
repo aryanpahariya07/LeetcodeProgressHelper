@@ -171,7 +171,9 @@ async def _recent_attempts(session: AsyncSession, user: User) -> tuple[AttemptSu
         AttemptSummary(
             attempt_id=a.id,
             problem_slug=a.problem.slug,
-            problem_rating=a.problem.rating,
+            # Zero for an uncatalogued problem. The coach reads this as prose in a
+            # prompt, not as a number to compute with.
+            problem_rating=a.problem.rating or 0,
             patterns=tuple(by_problem.get(a.problem_id, [])),
             resolution=a.resolution.value,
             blocker=a.blocker.value if a.blocker else None,

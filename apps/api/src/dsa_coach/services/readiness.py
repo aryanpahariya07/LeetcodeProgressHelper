@@ -287,10 +287,20 @@ async def _prior_attempt_times(
     return tuple(rows)
 
 
-async def build_facts(session: AsyncSession, user: User, attempt: Attempt) -> AttemptFacts:
+async def build_facts(session: AsyncSession, user: User, attempt: Attempt) -> AttemptFacts | None:
+    """The facts an attempt contributes, or None if it cannot contribute any.
+
+    An attempt on an uncatalogued problem has no rating to score against, and a
+    readiness update is meaningless without one — the models ask "how hard was
+    this, and did you manage it". Returning None keeps such an attempt stored as
+    evidence while excluding it from the estimate, rather than inventing a
+    difficulty for it (invariant 5).
+    """
     problem = (
         await session.execute(select(Problem).where(Problem.id == attempt.problem_id))
     ).scalar_one()
+    if problem.rating is None:
+        return None
     return AttemptFacts(
         attempt_id=attempt.id,
         problem_id=attempt.problem_id,
@@ -314,6 +324,8 @@ async def apply_attempt(session: AsyncSession, user: User, attempt: Attempt) -> 
     Returns the evidence used, or None if the attempt did not count.
     """
     facts = await build_facts(session, user, attempt)
+    if facts is None:
+        return None
     evidence = to_evidence(facts)
     if evidence is None:
         return None
