@@ -16,17 +16,29 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dsa_coach import tuning
+from dsa_coach.coach.conclusion_runtime import (
+    CodexConclusionRuntime,
+    ConclusionOutcome,
+    ConclusionRequest,
+    SnapshotView,
+)
+from dsa_coach.coach.runtime import CoachFailure
+from dsa_coach.mechanism import defects as defect_vocab
 from dsa_coach.models import (
     Attempt,
     AttemptConclusion,
     AttemptSnapshot,
+    Blocker,
     EpisodeOutcome,
+    Pattern,
     Problem,
+    ProblemPattern,
     SnapshotKind,
     SubmissionOutcome,
     User,
@@ -110,7 +122,15 @@ async def open_episode(
                     AttemptSnapshot.problem_id == problem_id,
                     AttemptSnapshot.conclusion_id.is_(None),
                 )
-                .order_by(AttemptSnapshot.captured_at, AttemptSnapshot.id)
+                .order_by(
+                    AttemptSnapshot.captured_at,
+                    # Insertion order breaks a tie. Two runs can share a
+                    # millisecond, and falling through to a random UUID would
+                    # reorder the sequence — which is the one thing the
+                    # conclusion actually reads.
+                    AttemptSnapshot.created_at,
+                    AttemptSnapshot.id,
+                )
             )
         )
         .scalars()
@@ -231,3 +251,103 @@ async def abandon(
         snapshot.conclusion_id = conclusion.id
     await session.flush()
     return conclusion
+
+
+class ConclusionRuntime(Protocol):
+    """Anything that can turn a run sequence into a conclusion.
+
+    Exists so tests can inject a scripted double: a real call costs a ChatGPT
+    quota and takes tens of seconds, and neither belongs in a suite that runs on
+    every change.
+    """
+
+    name: str
+
+    async def conclude(self, request: ConclusionRequest) -> ConclusionOutcome: ...
+
+
+async def conclude(
+    session: AsyncSession,
+    user: User,
+    conclusion_row: AttemptConclusion,
+    runtime: ConclusionRuntime | None = None,
+) -> ConclusionOutcome:
+    """Ask the coach what the run sequence shows, and record the answer.
+
+    The episode is already closed by the time this runs — `abandon` and the
+    solve path both attach the snapshots first. That ordering is deliberate:
+    closing must not depend on a model, so giving up works with the provider
+    down and a failed conclusion leaves the episode closed and empty rather
+    than reopening it (invariant 4).
+
+    Everything written here is judgment. It lands on `attempt_conclusions` and
+    never on `attempts`, and `confidence` is stored alongside so downstream can
+    weight it rather than take it at face value (invariant 1).
+    """
+    snapshots = (
+        (
+            await session.execute(
+                select(AttemptSnapshot)
+                .where(AttemptSnapshot.conclusion_id == conclusion_row.id)
+                .order_by(
+                    AttemptSnapshot.captured_at,
+                    AttemptSnapshot.created_at,
+                    AttemptSnapshot.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not snapshots:
+        return ConclusionOutcome(
+            failure=CoachFailure.INVALID_OUTPUT, error_detail="No snapshots attached."
+        )
+
+    problem = (
+        await session.execute(select(Problem).where(Problem.id == conclusion_row.problem_id))
+    ).scalar_one()
+
+    patterns = (
+        await session.execute(
+            select(ProblemPattern.pattern_id, Pattern.slug)
+            .join(Pattern, Pattern.id == ProblemPattern.pattern_id)
+            .where(ProblemPattern.problem_id == problem.id)
+        )
+    ).all()
+
+    runtime = runtime or CodexConclusionRuntime()
+    outcome = await runtime.conclude(
+        ConclusionRequest(
+            problem_slug=problem.slug,
+            problem_title=problem.title,
+            language=snapshots[-1].language,
+            candidate_patterns=tuple((str(pid), slug) for pid, slug in patterns),
+            outcome=conclusion_row.outcome.value,
+            snapshots=tuple(
+                SnapshotView(ordinal=index + 1, kind=snap.kind.value, code=snap.code)
+                for index, snap in enumerate(snapshots)
+            ),
+        )
+    )
+
+    conclusion_row.runtime = runtime.name
+    conclusion_row.model = outcome.model
+    conclusion_row.vocabulary_version = defect_vocab.VOCABULARY_VERSION
+
+    if outcome.conclusion is not None:
+        result = outcome.conclusion
+        conclusion_row.patterns_used = result.patterns_used
+        conclusion_row.blocker_observed = (
+            Blocker(result.blocker_observed) if result.blocker_observed else None
+        )
+        conclusion_row.final_complexity = result.final_complexity
+        conclusion_row.runs_before_pass = result.runs_before_pass
+        conclusion_row.approach_changed = result.approach_changed
+        conclusion_row.converged_at_run = result.converged_at_run
+        conclusion_row.defects = result.defects
+        conclusion_row.confidence = result.confidence
+        conclusion_row.notes = result.notes
+
+    await session.flush()
+    return outcome
