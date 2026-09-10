@@ -6,6 +6,7 @@ import { delayFor, isRetryable, MAX_ATTEMPTS, shouldRetry } from "./backoff";
 import { shouldCapture, stateAfterHealth } from "./monitoring";
 import {
   buildAttemptEvent,
+  deriveResolution,
   emptySession,
   isReportable,
   overallConfidence,
@@ -198,10 +199,14 @@ describe("session state machine", () => {
     expect(state.submitCount).toBe(1);
   });
 
-  it("asks for an answer after a submission", () => {
+  it("completes on a submission, with no questionnaire in between", () => {
+    // The 1–2 click questionnaire is gone (spec §3.2). The resolution is
+    // derived from the verdict plus whether the editorial was opened, so there
+    // is nothing left to wait for.
     const state = run([openEvent(), submitEvent(T0 + minute)]);
 
-    expect(state.phase).toBe("awaiting_answer");
+    expect(state.phase).toBe("complete");
+    expect(isReportable(state)).toBe(true);
   });
 
   it("completes when the questionnaire is answered", () => {
@@ -215,11 +220,17 @@ describe("session state machine", () => {
     expect(isReportable(state)).toBe(true);
   });
 
-  it("still reports an attempt when the questionnaire is dismissed", () => {
-    // Dismissal is missing information, not a failure (spec §3.2).
-    const state = run([openEvent(), submitEvent(T0 + minute), { type: "dismiss" }]);
+  it("reports an unreadable verdict as unknown, not as a failure", () => {
+    // A verdict the adapter could not read is missing information, not a failed
+    // attempt — §6.2 treats unknown as weak evidence rather than a loss.
+    const state = run([
+      openEvent(),
+      {
+        type: "submit",
+        observation: { outcome: { value: null, confidence: "low" }, at: T0 + minute },
+      },
+    ]);
 
-    expect(isReportable(state)).toBe(true);
     expect(buildAttemptEvent(state, { eventUuid: "x" })?.resolution).toBe("unknown");
   });
 
@@ -303,14 +314,18 @@ describe("session state machine", () => {
     expect(state.runCount).toBe(1);
   });
 
-  it("counts a second submission on the same problem", () => {
+  it("starts a new session for a second submission on the same problem", () => {
+    // A submission now completes the session outright, so the retry after a
+    // wrong answer is its own attempt rather than a second count on the first.
+    // That is what makes each submission a separate row of evidence.
     const state = run([
       openEvent(),
       submitEvent(T0 + minute, "wrong_answer"),
+      openEvent("two-sum", T0 + 90_000),
       submitEvent(T0 + 2 * minute, "accepted"),
     ]);
 
-    expect(state.submitCount).toBe(2);
+    expect(state.submitCount).toBe(1);
     expect(state.lastSubmission?.outcome.value).toBe("accepted");
   });
 });
@@ -360,18 +375,20 @@ describe("buildAttemptEvent", () => {
     { type: "run", at: T0 + minute },
     { type: "run", at: T0 + 5 * minute },
     submitEvent(T0 + 10 * minute),
-    { type: "answer", answer: { resolution: "after_hint", blocker: "edge_cases" } },
   ]);
 
   it("produces nothing from an incomplete session", () => {
     expect(buildAttemptEvent(run([openEvent()]), { eventUuid: "x" })).toBeNull();
   });
 
-  it("carries the questionnaire answers through", () => {
+  it("derives the resolution and leaves the blocker unknown", () => {
+    // Nothing is asked for, so nothing is guessed. The blocker stays null until
+    // the code-conclusion pipeline can infer it from what was written; a made-up
+    // blocker would steer prescription on invented evidence.
     const event = buildAttemptEvent(complete, { eventUuid: "abc" });
 
-    expect(event?.resolution).toBe("after_hint");
-    expect(event?.blocker).toBe("edge_cases");
+    expect(event?.resolution).toBe("independent");
+    expect(event?.blocker).toBeNull();
   });
 
   it("reports measured time and what was excluded", () => {
@@ -621,5 +638,71 @@ describe("monitoring state (spec §4.3)", () => {
     it("is idempotent for a healthy monitoring extension", () => {
       expect(stateAfterHealth("monitoring", true)).toBe("monitoring");
     });
+  });
+});
+
+describe("deriving the resolution without a questionnaire (spec §3.2)", () => {
+  it("an accepted verdict is independent", () => {
+    const state = run([openEvent(), submitEvent(T0 + minute, "accepted")]);
+
+    expect(deriveResolution(state)).toBe("independent");
+  });
+
+  it("accepted AFTER opening the editorial is not independent", () => {
+    // The whole reason the questionnaire could be dropped safely. An accepted
+    // verdict looks identical whether you solved it or read the answer, so
+    // without this every pass would credit readiness that was never earned.
+    const state = run([
+      openEvent(),
+      { type: "aid_viewed" },
+      submitEvent(T0 + minute, "accepted"),
+    ]);
+
+    expect(deriveResolution(state)).toBe("after_editorial");
+  });
+
+  it("a rejected verdict is a failure", () => {
+    const state = run([openEvent(), submitEvent(T0 + minute, "wrong_answer")]);
+
+    expect(deriveResolution(state)).toBe("failed");
+  });
+
+  it("an unreadable verdict is unknown, never a failure", () => {
+    const state = run([
+      openEvent(),
+      {
+        type: "submit",
+        observation: { outcome: { value: null, confidence: "low" }, at: T0 + minute },
+      },
+    ]);
+
+    expect(deriveResolution(state)).toBe("unknown");
+  });
+
+  it("having seen the editorial cannot be un-seen", () => {
+    // Sticky for the session: flicking back to the description afterwards does
+    // not restore an independent solve.
+    const state = run([
+      openEvent(),
+      { type: "aid_viewed" },
+      { type: "input", at: T0 + minute },
+      submitEvent(T0 + 2 * minute, "accepted"),
+    ]);
+
+    expect(state.sawAid).toBe(true);
+    expect(deriveResolution(state)).toBe("after_editorial");
+  });
+
+  it("a fresh session on the same problem forgets the editorial", () => {
+    // Coming back tomorrow and solving it unaided is an independent solve.
+    const state = run([
+      openEvent(),
+      { type: "aid_viewed" },
+      submitEvent(T0 + minute, "wrong_answer"),
+      openEvent("two-sum", T0 + 10 * minute),
+      submitEvent(T0 + 11 * minute, "accepted"),
+    ]);
+
+    expect(deriveResolution(state)).toBe("independent");
   });
 });

@@ -21,17 +21,19 @@ The intended loop:
 1. The user opens a LeetCode problem.
 2. The extension detects the problem, language, active time, Run/Submit interactions
    and submission outcome — automatically, with no user action.
-3. On a submission result, a tiny questionnaire asks only what telemetry cannot
-   determine: how it was solved, the main blocker, and confidence in reproducing it.
-4. The user answers in 1–2 clicks.
-5. The combined event syncs idempotently to the API.
+3. On a submission result, the resolution is *derived* — from the verdict, and from
+   whether the editorial was opened (§3.2). Nothing is asked.
+4. The blocker is left unknown until it can be inferred from the code (§3.6).
+5. The event syncs idempotently to the API.
 6. Deterministic code updates readiness and retention.
 7. Every three relevant attempts, the system checks for a material change and either
    records an explained `no_change` or asks the coach to prescribe the next block.
 8. Public-profile sync reconciles in the background and covers gaps.
 
-**Never re-ask the user for information the extension already captured.** The
-questionnaire exists solely to cover the telemetry blind spot.
+**Never ask the user for information the extension can observe.** v3 originally
+covered the telemetry blind spot with a questionnaire; the blind spot turned out to be
+smaller than assumed, and what remains of it is left honestly unknown rather than
+guessed at (§3.2).
 
 Never guarantee interview success. This is a preparation coach, not a predictor.
 
@@ -130,21 +132,53 @@ An attempt is assembled from two sources that must never be confused.
   `compile_error` | `tle` | `unknown`
 - `capture_confidence`: `high` | `medium` | `low`
 
-### 3.2 Captured by questionnaire (1–2 clicks)
+### 3.2 Derived, not asked (the questionnaire is removed)
 
-Shown once, on a submission result. Every field is optional and dismissible.
+v3 originally showed a 1–2 click questionnaire on every submission result. **It
+is gone.** Nothing is asked; the fields it collected are derived, or left
+unknown, or recovered by amendment.
 
-- **`resolution`** — *(one click, always asked)*
-  `independent` | `after_hint` | `after_editorial` | `failed`
-- **`blocker`** — *(one click, asked only on `after_hint` / `after_editorial` /
-  `failed`)*
-  `pattern_not_recognized` | `pattern_known_impl_failed` | `edge_cases` |
-  `complexity` | `data_structure_choice` | `language_api` | `misread_problem`
-- **`confidence_cold_redo`** — *(1–5, asked on success only, and only on first
-  exposure or a lapsed re-solve — not on every attempt)*
+The reason it could go is that only one of its questions was genuinely
+unanswerable from telemetry, and that one turned out to be observable: whether
+the editorial or a community solution was opened. LeetCode puts that in the URL
+(`/problems/<slug>/editorial/`, `/solutions/`), and the extension already
+watches route changes.
 
-Dismissal is a valid outcome. A dismissed questionnaire yields
-`resolution: unknown`, which is treated as weak evidence (§6.2), not as a failure.
+**`resolution`** is derived, conservatively:
+
+| Observed | Recorded |
+| --- | --- |
+| Accepted, no editorial or solutions opened this session | `independent` |
+| Accepted, but the editorial *was* opened | `after_editorial` |
+| Any other verdict | `failed` |
+| Verdict unreadable | `unknown` — weak evidence (§6.2), not a failure |
+
+Crediting a pass as `independent` when the answer had been on screen would
+inflate readiness on evidence that does not exist, so the editorial flag is
+sticky for the session: having read it cannot be un-read. A fresh session on
+the same problem starts clean, because coming back the next day and solving it
+unaided *is* an independent solve.
+
+`after_hint` is unreachable from telemetry — nothing distinguishes a hint from
+ordinary reading — and remains available through amendment (§3.3).
+
+**`blocker`** is **not** derived and **not** guessed. It stays null until the
+code-conclusion pipeline (§3.6) can infer it from what was actually written. A
+fabricated blocker would steer prescription on invented evidence, and
+self-report was never reliable for it in any case: the whole point of reading
+the code is that "I was too slow" and "I never saw the pattern" look identical
+from the outside and completely different in the source.
+
+**`confidence_cold_redo`** is dropped. It was a subjective 1–5 rating described
+even here as a secondary signal, and it is the one field with no observable
+counterpart at all.
+
+> **Why this is a net gain.** The questionnaire interrupted at the moment
+> attention was highest, asked for a judgement the user had not yet formed, and
+> collected an answer that was frequently wrong — §3.3 exists precisely because
+> the most important correction ("solved after the editorial") reliably arrives
+> *after* the prompt has been dismissed. Deriving what is observable and
+> admitting what is not produces a smaller but more honest record.
 
 ### 3.3 Amendment (required — the editorial timing problem)
 

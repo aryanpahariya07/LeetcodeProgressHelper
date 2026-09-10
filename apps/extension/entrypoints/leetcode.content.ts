@@ -6,8 +6,8 @@
  * - Notice which problem is open, across SPA navigation.
  * - Feed the session state machine timing and interaction events.
  * - Detect a submission result via the adapter.
- * - Ask the 1–2 click questionnaire, and hand the finished attempt to the
- *   background worker.
+ * - Derive the resolution from the verdict, and hand the finished attempt to
+ *   the background worker.
  *
  * It holds no credentials and makes no network calls. Every read of the page
  * goes through the adapter, so LeetCode's markup is knowable from exactly one
@@ -27,8 +27,7 @@ import {
   type SessionEvent,
   type SessionState,
 } from "../src/lib/session";
-import { askQuestionnaire } from "../src/ui/questionnaire";
-import { observed, type SubmissionOutcome } from "../src/lib/types";
+import { observed } from "../src/lib/types";
 
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
@@ -99,8 +98,26 @@ function start(): void {
   installNavigationHook(() => {
     if (state.phase === "working" && state.slug) dispatch({ type: "leave", at: Date.now() });
     lastOutcomeText = "";
+    noteAidView();
     openCurrentProblem();
   });
+
+  /**
+   * Notice the editorial or a community solution being opened.
+   *
+   * The one thing telemetry cannot recover afterwards: an accepted verdict looks
+   * identical whether you solved it yourself or read the answer first. With the
+   * questionnaire gone, this is what keeps `independent` honest.
+   *
+   * Checked after `openCurrentProblem` has run at least once, and dispatched
+   * before it on navigation, so the flag lands on the session for the problem
+   * whose editorial was opened.
+   */
+  function noteAidView(): void {
+    if (/\/(editorial|solutions)\b/i.test(location.pathname)) {
+      dispatch({ type: "aid_viewed" });
+    }
+  }
 
   // --- Closing the tab.
   //
@@ -194,7 +211,7 @@ function start(): void {
     if (source === "unknown" && lastRequestKind === "run") return;
 
     dispatch({ type: "submit", observation: { outcome, at: Date.now() } });
-    void finish(outcome.value);
+    void finish();
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
@@ -209,10 +226,10 @@ function start(): void {
     missing: health.missing,
   });
 
-  const finish = async (outcome: SubmissionOutcome): Promise<void> => {
-    const answer = await askQuestionnaire(outcome);
-    dispatch(answer ? { type: "answer", answer } : { type: "dismiss" });
-
+  const finish = async (): Promise<void> => {
+    // No questionnaire. The resolution is derived from the verdict plus whether
+    // the editorial was opened; the blocker is left unknown until the
+    // code-conclusion pipeline can infer it (spec §3.2).
     const event = buildAttemptEvent(state, { eventUuid: crypto.randomUUID() });
     if (!event) return;
     await send({ type: "capture", event });
@@ -221,6 +238,7 @@ function start(): void {
   };
 
   openCurrentProblem();
+  noteAidView();
 }
 
 /**
