@@ -128,7 +128,14 @@ describe("patching the page", () => {
     const win = {
       location: { origin: "https://leetcode.com" },
       postMessage: (data: unknown) => posted.push(data),
-      fetch: (input: unknown, init?: unknown) => {
+      // Rejects a wrong receiver, exactly as the real one does. A plain
+      // function here would accept any `this` and hide the bug below.
+      fetch: function (this: unknown, input: unknown, init?: unknown) {
+        if (this !== win) {
+          throw new TypeError(
+            "Failed to execute 'fetch' on 'Window': Illegal invocation",
+          );
+        }
         fetchCalls.push([input, init]);
         return Promise.resolve("original response" as unknown as Response);
       },
@@ -157,6 +164,23 @@ describe("patching the page", () => {
 
     expect(response).toBe("original response");
     expect(fetchCalls).toHaveLength(1);
+  });
+
+  it("works when called bare, without a receiver", async () => {
+    // The regression that broke LeetCode outright. Bundled code calls
+    // `fetch(url)` rather than `window.fetch(url)`, so in strict mode the patch
+    // receives `this === undefined`. Forwarding that receiver throws Illegal
+    // invocation and every request on the page fails — not just uncaptured,
+    // actually broken, including the Run and Submit being observed.
+    const { win, fetchCalls, posted } = fakeWindow();
+    installNetworkObserver(win);
+
+    const bare = win.fetch;
+    const response = await bare(RUN_URL, { method: "POST", body: RUN_BODY });
+
+    expect(response).toBe("original response");
+    expect(fetchCalls).toHaveLength(1);
+    expect(posted).toHaveLength(1);
   });
 
   it("does not post for unrelated requests", async () => {

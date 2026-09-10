@@ -142,7 +142,14 @@ export function installNetworkObserver(win: Window = window): void {
       } catch {
         // Observation must never break the page.
       }
-      return originalFetch.call(this, input as RequestInfo, init);
+      // Always `win`, never the incoming `this`.
+      //
+      // `fetch` is a method on Window and rejects any other receiver. Bundled
+      // code calls it bare — `fetch(url)` — which in strict mode passes
+      // `this === undefined`, and forwarding that gives
+      // "Illegal invocation", breaking every request on the page rather than
+      // merely failing to observe one.
+      return originalFetch.call(win, input as RequestInfo, init);
     } as typeof win.fetch;
   }
 
