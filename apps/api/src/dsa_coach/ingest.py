@@ -30,6 +30,7 @@ from dsa_coach.models import (
     User,
 )
 from dsa_coach.schemas import AttemptEventIn, EventResultOut
+from dsa_coach.services import consent as consent_service
 from dsa_coach.services import pipeline
 
 
@@ -102,6 +103,13 @@ async def _ingest_one(
             attempt = _build_attempt(user, problem.id, event, source)
             session.add(attempt)
             await session.flush()
+
+            if event.code:
+                # `store_code` re-reads consent and returns None when storage is
+                # not permitted, so a client sending code it should not — stale
+                # config, consent revoked mid-session, a modified extension —
+                # cannot persist it (invariant 9). The decision is the server's.
+                await consent_service.store_code(session, user, attempt, event.code, event.language)
 
             await _record_event(
                 session,

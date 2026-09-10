@@ -20,6 +20,7 @@ from dsa_coach.config import Settings, get_settings
 from dsa_coach.ingest import ingest_events
 from dsa_coach.models import AttemptSource
 from dsa_coach.schemas import AttemptBatchIn, BatchResultOut
+from dsa_coach.services import consent as consent_service
 
 router = APIRouter(prefix="/extension", tags=["extension"])
 
@@ -64,14 +65,21 @@ async def ingest_batch(
 
 @router.get("/config", dependencies=[Depends(require_scope(Scope.EXTENSION_INGEST))])
 async def extension_config(
+    user: CurrentUser,
+    session: DbSession,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, object]:
-    """Runtime config the content script needs. No secrets are ever returned here."""
+    """Runtime config the content script needs. No secrets are ever returned here.
+
+    `code_capture_enabled` is the server's answer, not the extension's opinion.
+    Invariant 9 puts consent behind an explicit, versioned decision, so the
+    extension must ask rather than decide — and revoking consent in the
+    dashboard has to stop capture at the source, not merely stop storage.
+    """
+    consent = await consent_service.state(session, user)
     return {
         "max_batch_size": settings.max_batch_size,
-        # Phase 2 wires these to real consent + pause state.
-        "monitoring_enabled": False,
-        "code_capture_enabled": False,
-        "idle_threshold_seconds": 300,
+        "monitoring_enabled": True,
+        "code_capture_enabled": consent.may_send,
         "host_permissions": ["https://leetcode.com/problems/*"],
     }

@@ -64,6 +64,13 @@ export interface AttemptEvent {
   confidence_cold_redo: number | null;
   is_resolve: boolean;
   capture_confidence: CaptureConfidence;
+  /**
+   * The submitted source, present only under consented code capture.
+   *
+   * Attached by the content script after the server confirms permission, and
+   * re-checked server-side before storage (invariant 9).
+   */
+  code?: string;
   raw_metadata: Record<string, unknown> | null;
 }
 

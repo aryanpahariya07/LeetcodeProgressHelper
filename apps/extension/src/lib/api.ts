@@ -120,3 +120,35 @@ export async function sendBatch(
     };
   }
 }
+
+export interface ExtensionConfig {
+  code_capture_enabled: boolean;
+  max_batch_size: number;
+}
+
+/**
+ * Ask the server what the extension is currently permitted to do.
+ *
+ * Only `code_capture_enabled` matters today, and it is deliberately the
+ * server's answer rather than a local setting (invariant 9): consent is a
+ * versioned decision recorded against disclosure text, and revoking it in the
+ * dashboard has to stop capture at the source.
+ *
+ * Any failure — offline, 401, malformed — answers "not permitted". Sending code
+ * because permission could not be *checked* is the one outcome worth ruling out
+ * by construction.
+ */
+export async function fetchConfig(
+  baseUrl: string,
+  token: string,
+): Promise<ExtensionConfig | null> {
+  try {
+    const response = await fetch(`${baseUrl}/extension/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as ExtensionConfig;
+  } catch {
+    return null;
+  }
+}

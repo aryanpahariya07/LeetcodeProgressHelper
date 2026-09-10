@@ -154,6 +154,15 @@ class AttemptEventIn(BaseModel):
     timed: bool = False
     capture_confidence: CaptureConfidence = CaptureConfidence.HIGH
 
+    #: The submitted source, sent only while code capture is consented.
+    #:
+    #: Whether it is *stored* is decided server-side regardless of what arrives
+    #: here (invariant 9): the extension asks `/extension/config` for
+    #: permission, but a stale answer, a revoked consent or a modified client
+    #: must not be able to persist code the user has not agreed to keep. So the
+    #: server re-checks before writing, and silently drops it otherwise.
+    code: Annotated[str | None, Field(max_length=200_000)] = None
+
     notes: str | None = Field(default=None, max_length=4000)
     raw_metadata: dict[str, Any] | None = None
 

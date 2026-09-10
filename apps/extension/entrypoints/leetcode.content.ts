@@ -96,6 +96,31 @@ function start(): void {
    */
   let observerHasReported = false;
 
+  /**
+   * The source last submitted, held only until the attempt is sent.
+   *
+   * Kept in memory and never written anywhere by the content script. Whether it
+   * leaves this tab is the server's decision, asked for below.
+   */
+  let submittedCode: string | null = null;
+
+  /**
+   * Whether the server currently permits code capture (invariant 9).
+   *
+   * Asked rather than assumed, and re-asked per attempt, so revoking consent in
+   * the dashboard stops capture at the source rather than merely stopping
+   * storage. Any failure answers "no": if permission cannot be established,
+   * code is not sent.
+   */
+  const codeCaptureAllowed = async (): Promise<boolean> => {
+    try {
+      const config = await chrome.runtime.sendMessage({ type: "get_config" });
+      return config?.code_capture_enabled === true;
+    } catch {
+      return false;
+    }
+  };
+
   const openCurrentProblem = (): void => {
     const url = location.href;
     if (!adapter.isProblemPage(url)) return;
@@ -221,6 +246,7 @@ function start(): void {
       // A submission is now in flight. The next verdict the DOM produces is
       // its outcome, and is the one worth recording.
       awaitingVerdict = true;
+      submittedCode = data.typedCode;
     }
   });
 
@@ -333,6 +359,14 @@ function start(): void {
     // code-conclusion pipeline can infer it (spec §3.2).
     const event = buildAttemptEvent(state, { eventUuid: crypto.randomUUID() });
     if (!event) return;
+
+    // Attached only with the server's permission, asked for per attempt
+    // (invariant 9). The server checks consent again before storing.
+    if (submittedCode && (await codeCaptureAllowed())) {
+      event.code = submittedCode;
+    }
+    submittedCode = null;
+
     await send({ type: "capture", event });
     state = emptySession();
     openCurrentProblem();

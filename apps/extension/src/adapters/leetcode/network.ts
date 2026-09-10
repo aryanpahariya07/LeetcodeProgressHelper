@@ -35,12 +35,19 @@
  * `data_input` appears on Run only, but the URL already separates the two, so
  * the distinction does not rest on it.
  *
- * ## What is deliberately NOT read here
+ * ## Code, and where the gates are
  *
- * `typed_code` is in both bodies and is **not** extracted. Code capture is off
- * by default and requires explicit consent (invariant 9); wiring it up before
- * the consent plumbing exists would mean code flowing with nobody having agreed
- * to it. This file reads only what the extension is already permitted to record.
+ * `typed_code` is in both bodies and is read here — but reading is not keeping.
+ * Code capture is off by default and requires explicit consent (invariant 9),
+ * enforced twice and never by this module:
+ *
+ * 1. The content script drops the field unless `/extension/config` reports
+ *    `code_capture_enabled`, which the server answers from the stored consent.
+ * 2. The server re-checks consent before writing, so a stale config answer, a
+ *    consent revoked mid-session, or a modified client cannot persist code.
+ *
+ * This module's job is to observe accurately. Deciding what may be kept is
+ * deliberately somebody else's.
  *
  * ## Fragility, stated plainly
  *
@@ -64,6 +71,17 @@ export interface ObservedSubmission {
   questionId: string | null;
   /** Authoritative, unlike the language read from a button label. */
   lang: string | null;
+  /**
+   * The submitted source.
+   *
+   * Read here, but going no further unless the *server* says code capture is
+   * consented (invariant 9). Reading it is not the same as keeping it: the
+   * content script drops this field unless `/extension/config` reports
+   * `code_capture_enabled`, and the server re-checks consent again before
+   * storing. Two gates, because a stale config answer must not be able to
+   * persist code nobody agreed to keep.
+   */
+  typedCode: string | null;
   at: number;
 }
 
@@ -97,6 +115,7 @@ export function classify(
     slug: match[1].toLowerCase(),
     questionId: stringOrNull(parsed?.question_id),
     lang: stringOrNull(parsed?.lang)?.toLowerCase() ?? null,
+    typedCode: stringOrNull(parsed?.typed_code),
     at,
   };
 }

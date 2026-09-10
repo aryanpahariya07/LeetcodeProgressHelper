@@ -6,7 +6,7 @@
  * the queue outlives the tab.
  */
 
-import { sendBatch } from "../src/lib/api";
+import { fetchConfig, sendBatch } from "../src/lib/api";
 import { delayFor, shouldRetry } from "../src/lib/backoff";
 import { shouldCapture, stateAfterHealth } from "../src/lib/monitoring";
 import * as store from "../src/lib/storage";
@@ -33,6 +33,7 @@ type Message =
   | { type: "capture"; event: AttemptEvent }
   | { type: "adapter_health"; healthy: boolean; missing: string[] }
   | { type: "get_status" }
+  | { type: "get_config" }
   | { type: "sync_now" };
 
 async function handleMessage(message: Message): Promise<unknown> {
@@ -76,6 +77,14 @@ async function handleMessage(message: Message): Promise<unknown> {
 
     case "get_status":
       return currentStatus();
+
+    case "get_config": {
+      // Proxied through the worker because the content script holds no
+      // credentials — the device token lives here and nowhere else.
+      const config = await store.getConfig();
+      if (!config.deviceToken) return null;
+      return fetchConfig(config.apiBaseUrl, config.deviceToken);
+    }
   }
 }
 

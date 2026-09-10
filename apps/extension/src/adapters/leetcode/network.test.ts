@@ -97,27 +97,48 @@ describe("classifying a request", () => {
   });
 });
 
-describe("what is deliberately not read", () => {
-  it("never extracts the code", () => {
-    // Invariant 9: code capture is off by default and needs explicit consent.
-    // `typed_code` is in the body being parsed, so only this test stands
-    // between "we parse the body" and "we quietly started collecting code".
+describe("the code, and what this module does not decide", () => {
+  it("extracts the submitted source", () => {
     const result = classify(RUN_URL, RUN_BODY, AT);
 
-    expect(JSON.stringify(result)).not.toContain("class Solution");
-    expect(JSON.stringify(result)).not.toContain("typed_code");
-    expect(Object.keys(result ?? {}).sort()).toEqual([
+    expect(result?.typedCode).toContain("class Solution");
+  });
+
+  it("exposes exactly the observed fields and nothing more", () => {
+    // Pinned, because this module reads a body containing more than it should
+    // carry. A new field appearing here is a deliberate decision, not a drift.
+    expect(Object.keys(classify(RUN_URL, RUN_BODY, AT) ?? {}).sort()).toEqual([
       "at",
       "kind",
       "lang",
       "questionId",
       "slug",
       "source",
+      "typedCode",
     ]);
   });
 
-  it("does not read the custom test input either", () => {
+  it("does not read the custom test input", () => {
     expect(JSON.stringify(classify(RUN_URL, RUN_BODY, AT))).not.toContain("data_input");
+  });
+
+  it("reports no code when the body has none", () => {
+    // Invariant 6: absent is null, never an empty string standing in for code.
+    const result = classify(RUN_URL, JSON.stringify({ lang: "java" }), AT);
+
+    expect(result?.typedCode).toBeNull();
+  });
+
+  it("does not itself decide whether the code may be kept", () => {
+    // Invariant 9 is enforced by two gates, neither of them here: the content
+    // script drops the field unless the server reports `code_capture_enabled`,
+    // and the server re-checks consent before storing. This module only
+    // observes — so it must expose no notion of permission at all, or that
+    // decision would quietly start living in the wrong layer.
+    const result = classify(SUBMIT_URL, SUBMIT_BODY, AT);
+    const keys = Object.keys(result ?? {});
+
+    expect(keys.some((k) => /consent|allow|enabled|permit/i.test(k))).toBe(false);
   });
 });
 
