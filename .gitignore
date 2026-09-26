@@ -27,3 +27,4 @@ dist/
 # extension build output
 .output/
 .wxt/
+CLAUDE.md
